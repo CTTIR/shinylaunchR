@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Preload script: the ONLY bridge between the sandboxed renderer and the main
  * process. Exposes a minimal, typed API over contextBridge. No Node or ipc

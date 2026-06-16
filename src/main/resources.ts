@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Resolve a bundled resource path that works in both development and a packaged
  * build, on every OS. In dev, resources live under the app root; when packaged,

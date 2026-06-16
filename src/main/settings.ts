@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Persisted application settings (theme, defaults, sources). Electron-free;
  * initialised with a directory by main.ts. Reads are tolerant of a missing or

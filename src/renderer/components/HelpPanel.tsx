@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { useEffect, useState } from 'react';
 import type { AppInfo } from '@shared/types';
 import { api } from '../lib/api';
@@ -113,7 +118,17 @@ export function HelpPanel({
                 </a>
               </div>
               <div className="k">License</div>
-              <div className="v">MIT</div>
+              <div className="v">
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void api.openExternal(`${info.repo}/blob/main/LICENSE`);
+                  }}
+                >
+                  Apache License 2.0
+                </a>
+              </div>
               <div className="k">Electron</div>
               <div className="v">{info.electron}</div>
               <div className="k">Node</div>
@@ -123,7 +138,7 @@ export function HelpPanel({
               <div className="k">Data folder</div>
               <div className="v">{info.userDataPath}</div>
             </div>
-            <div className="row" style={{ gap: 8 }}>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
               <button className="btn" onClick={() => void api.openExternal(info.repo)}>
                 Repository
               </button>
@@ -133,7 +148,34 @@ export function HelpPanel({
               >
                 Report an issue
               </button>
+              <button
+                className="btn ghost"
+                onClick={() => void api.openExternal(`${info.repo}/blob/main/NOTICE`)}
+              >
+                Notice
+              </button>
+              <button
+                className="btn ghost"
+                onClick={() => void api.openExternal(`${info.repo}/blob/main/THIRD_PARTY_LICENSES.md`)}
+              >
+                Third-party licenses
+              </button>
+              <button
+                className="btn ghost"
+                onClick={() => void api.openExternal(`${info.repo}/blob/main/PRIVACY.md`)}
+              >
+                Privacy
+              </button>
             </div>
+
+            <hr className="sep" />
+            <p style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.6 }}>
+              shinylaunchR is an independent open-source project. It is not affiliated
+              with, endorsed by, or sponsored by Posit Software, PBC (RStudio), the R
+              Foundation, or the maintainers of Shiny. “R”, “RStudio”, “Posit”, and
+              “Shiny” are trademarks of their respective owners. No telemetry is
+              collected.
+            </p>
           </div>
         )}
       </div>

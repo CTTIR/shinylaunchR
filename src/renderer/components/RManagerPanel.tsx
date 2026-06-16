@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { useEffect, useState } from 'react';
 import type { RStatus } from '@shared/types';
 import { api } from '../lib/api';

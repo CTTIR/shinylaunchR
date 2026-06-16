@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Installs an app's R package into the managed library, from CRAN or GitHub.
  * Runs a supervised child Rscript process and streams stdout/stderr to the
@@ -44,43 +49,103 @@ export function safeRepos(url: string): string {
   return u.href;
 }
 
-/** Build the R expression to install a CRAN package. */
-export function buildCranScript(pkg: string, lib: string, repos: string): string {
-  if (!isValidPkg(pkg)) throw new Error(`invalid package: ${pkg}`);
+/**
+ * Library-setup lines prepended to every install script: create and prepend the
+ * managed lib, and point `repos` at the validated CRAN mirror (so pak, which
+ * does not take a `repos` argument, resolves CRAN deps from the same mirror).
+ */
+function libSetup(lib: string, repos: string): string[] {
   return [
     `lib <- "${rPath(lib)}"`,
     `dir.create(lib, showWarnings = FALSE, recursive = TRUE)`,
     `.libPaths(c(lib, .libPaths()))`,
-    `utils::install.packages("${pkg}", lib = lib, repos = "${repos}")`,
-    `if (!requireNamespace("${pkg}", quietly = TRUE)) stop("install failed: ${pkg}")`,
-    `cat("INSTALL_OK\\n")`,
-  ].join('; ');
+    `options(repos = c(CRAN = "${repos}"))`,
+  ];
 }
 
-/** Build the R expression to install a GitHub package (pak preferred). */
+/** Ensure a bootstrap helper (pak/remotes) is present in the managed lib. */
+function ensureHelper(helper: 'pak' | 'remotes', repos: string): string {
+  return (
+    `if (!requireNamespace("${helper}", quietly = TRUE)) { ` +
+    `cat("Bootstrapping ${helper} into the managed library...\\n"); ` +
+    `utils::install.packages("${helper}", lib = lib, repos = "${repos}") }`
+  );
+}
+
+/**
+ * Final lines: confirm the freshly-installed target package actually loads
+ * (its namespace + hard deps resolve) before emitting the INSTALL_OK sentinel.
+ * A missing dependency makes this `stop()`, so the install is reported as failed
+ * rather than a false "ready" that later halts at launch.
+ */
+function loadGate(pkg: string): string[] {
+  return [
+    `if (!requireNamespace("${pkg}", quietly = TRUE)) ` +
+      `stop("installed but package '${pkg}' will not load - a dependency may be missing")`,
+    `cat("INSTALL_OK\\n")`,
+  ];
+}
+
+/**
+ * Build the R expression to install a CRAN package together with its full
+ * dependency tree. `dependencies = TRUE` (Depends/Imports/LinkingTo/Suggests)
+ * so runtime-only deps such as `shiny.i18n` are pulled; pak (preferred) resolves
+ * the same graph and installs binaries where possible.
+ */
+export function buildCranScript(
+  pkg: string,
+  lib: string,
+  repos: string,
+  preferPak = false,
+): string {
+  if (!isValidPkg(pkg)) throw new Error(`invalid package: ${pkg}`);
+  const installer = preferPak
+    ? [
+        ensureHelper('pak', repos),
+        `cat("Installing ${pkg} and its full dependency tree via pak...\\n")`,
+        `pak::pkg_install("${pkg}", lib = lib, dependencies = TRUE, upgrade = FALSE, ask = FALSE)`,
+      ]
+    : [
+        `cat("Installing ${pkg} and its full dependency tree via install.packages...\\n")`,
+        `utils::install.packages("${pkg}", lib = lib, repos = "${repos}", dependencies = TRUE)`,
+      ];
+  return [...libSetup(lib, repos), ...installer, ...loadGate(pkg)].join('; ');
+}
+
+/**
+ * Build the R expression to install a GitHub package and its full dependency
+ * tree. pak (preferred) resolves CRAN/Bioc/GitHub deps from the graph; the
+ * remotes fallback uses `dependencies = TRUE` (covers Suggests) and
+ * `upgrade = "never"` so other managed packages are not churned on every install.
+ * `pkg` is the validated package name used for the post-install load gate.
+ */
 export function buildGithubScript(
   repo: string,
+  pkg: string,
   lib: string,
   repos: string,
   preferPak: boolean,
 ): string {
   if (!isValidRepo(repo)) throw new Error(`invalid repo: ${repo}`);
+  if (!isValidPkg(pkg)) throw new Error(`invalid package: ${pkg}`);
   const installer = preferPak
     ? [
-        `if (!requireNamespace("pak", quietly = TRUE)) utils::install.packages("pak", lib = lib, repos = "${repos}")`,
-        `pak::pak("${repo}")`,
+        ensureHelper('pak', repos),
+        `cat("Installing ${repo} and its full dependency tree via pak...\\n")`,
+        `pak::pkg_install("${repo}", lib = lib, dependencies = TRUE, upgrade = FALSE, ask = FALSE)`,
       ]
     : [
-        `if (!requireNamespace("remotes", quietly = TRUE)) utils::install.packages("remotes", lib = lib, repos = "${repos}")`,
-        `remotes::install_github("${repo}", lib = lib)`,
+        ensureHelper('remotes', repos),
+        `cat("Installing ${repo} and its full dependency tree via remotes...\\n")`,
+        `remotes::install_github("${repo}", lib = lib, dependencies = TRUE, upgrade = "never")`,
       ];
-  return [
-    `lib <- "${rPath(lib)}"`,
-    `dir.create(lib, showWarnings = FALSE, recursive = TRUE)`,
-    `.libPaths(c(lib, .libPaths()))`,
-    ...installer,
-    `cat("INSTALL_OK\\n")`,
-  ].join('; ');
+  return [...libSetup(lib, repos), ...installer, ...loadGate(pkg)].join('; ');
+}
+
+/** Build a quick R expression that reports whether `pkg` loads in the managed lib. */
+export function buildLoadCheckScript(pkg: string): string {
+  if (!isValidPkg(pkg)) throw new Error(`invalid package: ${pkg}`);
+  return `if (requireNamespace("${pkg}", quietly = TRUE)) cat("LOAD_OK\\n") else cat("LOAD_FAIL\\n")`;
 }
 
 export interface InstallDeps {
@@ -107,8 +172,8 @@ export function installPackage(entry: AppEntry, deps: InstallDeps): Promise<Inst
     const repos = safeRepos(settings.cranMirror);
     script =
       entry.source.kind === 'cran'
-        ? buildCranScript(entry.pkg, lib, repos)
-        : buildGithubScript(entry.source.repo, lib, repos, settings.preferPak);
+        ? buildCranScript(entry.pkg, lib, repos, settings.preferPak)
+        : buildGithubScript(entry.source.repo, entry.pkg, lib, repos, settings.preferPak);
   } catch (err) {
     const message = `Could not build install script: ${String(err)}`;
     logger.error('installer', message, entry.id);
@@ -164,6 +229,54 @@ export function installPackage(entry: AppEntry, deps: InstallDeps): Promise<Inst
     } catch (err) {
       logger.error('installer', `Spawn threw: ${String(err)}`, entry.id);
       finish({ ok: false, id: entry.id, message: String(err) });
+    }
+  });
+}
+
+export interface LoadCheckDeps {
+  runtime: RRuntimeManager;
+  spawner?: (cmd: string, args: string[], options: SpawnOptions) => ReturnType<typeof spawn>;
+}
+
+/**
+ * Quick pre-launch probe: does `pkg` load from the managed library? Returns
+ * false if R is unavailable, the namespace can't load (e.g. a missing
+ * dependency), or the probe errors — so the caller can surface a clear
+ * "dependency may be missing, try Reinstall" message instead of launching into
+ * a raw `loadNamespace` halt. Never throws.
+ */
+export function verifyPackageLoads(pkg: string, deps: LoadCheckDeps): Promise<boolean> {
+  const resolved = deps.runtime.resolveRscript();
+  if (!resolved) return Promise.resolve(false);
+  let script: string;
+  try {
+    script = buildLoadCheckScript(pkg);
+  } catch {
+    return Promise.resolve(false);
+  }
+  const spawner = deps.spawner ?? spawn;
+  const env = deps.runtime.childEnv();
+  return new Promise<boolean>((resolve) => {
+    let ok = false;
+    let settled = false;
+    const finish = (v: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(v);
+    };
+    try {
+      const child = spawner(resolved.rPath, ['--vanilla', '-e', script], {
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+      child.stdout?.on('data', (buf: Buffer) => {
+        if (buf.toString().includes('LOAD_OK')) ok = true;
+      });
+      child.on('error', () => finish(false));
+      child.on('close', () => finish(ok));
+    } catch {
+      finish(false);
     }
   });
 }

@@ -7,7 +7,7 @@ _Last reviewed: 2026-06-16 (Audit 5)._
 `npm audit --omit=dev` reports **0 vulnerabilities**. The only runtime
 dependency is `keytar` (MIT) and its `prebuild-install` transitive tree
 (MIT/ISC/BSD). There are **no copyleft (GPL/AGPL) runtime dependencies**, so the
-app's MIT license is unaffected. `react`/`react-dom` are dev-only: they are
+app's Apache-2.0 license is unaffected. `react`/`react-dom` are dev-only: they are
 bundled into the renderer by Vite, so they are not shipped as `node_modules`.
 
 ## Resolved this audit

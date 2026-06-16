@@ -1,0 +1,84 @@
+shinylaunchR
+Copyright 2026 Raban Heller (ORCID 0000-0001-8006-9742)
+
+This product includes software developed by Raban Heller.
+
+Licensed under the Apache License, Version 2.0 (see LICENSE). The contents of
+this NOTICE file are for informational/attribution purposes only and do not
+modify the License. Downstream redistributors must reproduce this NOTICE per
+Apache-2.0 §4(d).
+
+================================================================================
+Scope & disclaimer
+================================================================================
+This NOTICE documents shinylaunchR's third-party and compliance posture to make
+the project legally hygienic and well-documented. It is NOT legal advice and NOT
+a lawyer's sign-off. For commercial or large-scale public distribution, a
+qualified IP/OSS lawyer should review.
+
+================================================================================
+What shinylaunchR distributes vs. what it merely runs
+================================================================================
+shinylaunchR is an Electron application that ORCHESTRATES the execution of R and
+Shiny — it does not link against, embed, or modify R or Shiny source code. It
+launches R as a separate operating-system process and communicates with the
+resulting Shiny server over a local HTTP socket (127.0.0.1). This process
+separation keeps the Apache-2.0-licensed application clear of the GPL copyleft
+that governs R and Shiny.
+
+  Distributed in the installer (and thus covered by the attributions below):
+    - shinylaunchR's own code/bundles (Apache-2.0)
+    - the Electron runtime (MIT) and its bundled Chromium/Node.js components
+    - the native module keytar (MIT) and its dependencies (permissive)
+    - application icons (original work — the blue hexagon/play mark)
+
+  Merely run or installed on the user's machine at runtime (NOT redistributed):
+    - R, Shiny, and any R packages the user registers/installs
+    - any hosted/remote Shiny app URL the user adds
+
+================================================================================
+Third-party attributions (components distributed in the binary)
+================================================================================
+This product includes the following third-party software:
+
+  - Electron (https://www.electronjs.org/) — Copyright (c) Electron contributors
+    and Copyright (c) GitHub Inc. Licensed under the MIT License. Electron bundles
+    Chromium and Node.js, which include code under BSD, MIT, and LGPL licenses;
+    electron-builder emits a combined license file alongside the installer, and
+    the per-component notices are reproduced in that file.
+
+  - keytar (https://github.com/atom/node-keytar) — Copyright (c) GitHub Inc.
+    Licensed under the MIT License.
+
+  - Additional bundled runtime dependencies (the keytar/prebuild-install tree)
+    are licensed under MIT, ISC, Apache-2.0, and BSD. A full inventory with
+    versions is in THIRD_PARTY_LICENSES.md.
+
+Fonts: the UI references "Inter" and "JetBrains Mono" (both SIL Open Font
+License 1.1) by font-family name with system fallbacks. These font files are NOT
+bundled in the installer, so no OFL redistribution notice is required here. If a
+future build bundles them, include the OFL text and reserved font names under
+licenses/.
+
+================================================================================
+R and Shiny are NOT distributed
+================================================================================
+R and any R packages (including Shiny) are NOT distributed with shinylaunchR.
+They are downloaded and installed on the user's machine from CRAN at runtime,
+under their own licenses (R: GPL-2/GPL-3; Shiny: GPL-3). shinylaunchR launches
+R as a separate process and does not embed, link, or redistribute R or its
+packages. For transparency, R's license and sources are at
+https://www.r-project.org/Licenses/ and https://cran.r-project.org/.
+
+================================================================================
+Trademarks & non-affiliation
+================================================================================
+shinylaunchR is an independent open-source project. It is not affiliated with,
+endorsed by, or sponsored by Posit Software, PBC (RStudio), the R Foundation, or
+the maintainers of Shiny. "R", "RStudio", "Posit", and "Shiny" are trademarks of
+their respective owners and are used here only descriptively (nominative use).
+No third-party logos or marks are embedded; the app icon is original work.
+Per Apache-2.0 §6, this License does not grant rights to use the "shinylaunchR"
+name or marks.
+
+Privacy is documented in PRIVACY.md. Security reporting is in SECURITY.md.

@@ -11,8 +11,8 @@ mkdirSync(RES, { recursive: true });
 
 const SIZE = 256;
 const BG = [0x1a, 0x1a, 0x1d]; // near-black
-const PURPLE = [0x5e, 0x2c, 0x8e]; // suite purple
-const ACCENT = [0x8a, 0x5c, 0xc8]; // lighter purple edge
+const PURPLE = [0x2b, 0x6c, 0xb0]; // deep R blue (core fill)
+const ACCENT = [0x75, 0xaa, 0xdb]; // R blue edge
 
 function crc32(buf) {
   let c = ~0;

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppEntry, LogEvent } from '@shared/types';
 

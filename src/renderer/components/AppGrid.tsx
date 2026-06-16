@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import type { AppEntry, AppStatus } from '@shared/types';
 import { AppTile } from './AppTile';
 

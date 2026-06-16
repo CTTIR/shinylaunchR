@@ -181,8 +181,9 @@ npm run dist       # build + package for the current OS
 npm run dist:win   # / dist:mac / dist:linux
 ```
 
-Icons under `resources/` are generated placeholders (`node scripts/gen-icons.mjs`);
-replace them with branded assets before release.
+App icons under `resources/` (`icon.png` / `icon.ico` / `icon.icns`) are the
+branded blue play-hexagon mark. `scripts/gen-icons.mjs` remains as a fallback
+placeholder generator but is not needed for normal builds.
 
 ---
 
@@ -250,6 +251,36 @@ KISSKI (GWDG), and a self-hosted Mistral Small (24B, Apache-2.0) run locally via
 Ollama and the ollamar R package — local inference only, with no data sent to
 third parties for the self-hosted model.
 
+## Legal & compliance
+
+- **License:** Apache License 2.0 (see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE)).
+  Ownership and the commercial/dual-license path are explained in
+  [`LICENSING.md`](LICENSING.md).
+- **Third-party licenses:** all bundled dependencies are permissive
+  (MIT/ISC/Apache/BSD) — inventory in
+  [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
+- **R & Shiny (GPL):** shinylaunchR *orchestrates* R — it spawns R as a separate
+  process and talks to the Shiny server over a local socket; it does **not**
+  link, embed, or redistribute R or Shiny. R is detected on your system or
+  downloaded from CRAN onto your machine; Shiny and your packages are installed
+  by your own R. Details in [`NOTICE`](NOTICE).
+- **Privacy:** no telemetry; all data is local. See [`PRIVACY.md`](PRIVACY.md).
+- **Security:** reporting and posture in [`SECURITY.md`](SECURITY.md).
+
+> This documentation is legal *hygiene*, not legal advice and not a lawyer's
+> sign-off. For commercial or large-scale public distribution, have a qualified
+> IP/OSS lawyer review.
+
+### Trademarks & non-affiliation
+
+shinylaunchR is an independent open-source project. It is **not affiliated with,
+endorsed by, or sponsored by** Posit Software, PBC (RStudio), the R Foundation,
+or the maintainers of Shiny. "R", "RStudio", "Posit", and "Shiny" are trademarks
+of their respective owners, used here only descriptively. No third-party logos or
+marks are used; the app icon is original work.
+
 ## License
 
-MIT © 2026 Raban Heller ([ORCID 0000-0001-8006-9742](https://orcid.org/0000-0001-8006-9742)).
+Licensed under the **Apache License, Version 2.0** — Copyright © 2026 Raban
+Heller ([ORCID 0000-0001-8006-9742](https://orcid.org/0000-0001-8006-9742)).
+See [`LICENSE`](LICENSE), [`NOTICE`](NOTICE), and [`LICENSING.md`](LICENSING.md).

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Shared type contracts between the Electron main process and the renderer.
  * This module must remain free of any Node or Electron imports so it can be

@@ -38,6 +38,8 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  # Show the Apache-2.0 license during install.
+  license: LICENSE
 mac:
   icon: resources/icon.icns
   category: public.app-category.developer-tools
