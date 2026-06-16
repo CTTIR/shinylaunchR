@@ -2,9 +2,10 @@ import type { AppEntry, AppRunState, AppStatus } from '@shared/types';
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
+  const first = parts[0];
+  if (!first) return '?';
+  if (parts.length === 1) return first.slice(0, 2).toUpperCase();
+  return ((first[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase();
 }
 
 /** Convert an absolute filesystem path to a file:// URL usable in <img>. */
@@ -45,10 +46,14 @@ export function AppTile({ app, status, selected, onSelect, onLaunch, onContextMe
       onDoubleClick={() => onLaunch(app.id)}
       onContextMenu={(e) => onContextMenu(e, app)}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') onLaunch(app.id);
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onLaunch(app.id);
+        }
       }}
+      aria-label={`${app.name}, ${STATE_TITLE[state]}`}
     >
-      <span className={`status-dot ${state}`} />
+      <span className={`status-dot ${state}`} role="img" aria-label={STATE_TITLE[state]} />
       {app.iconPath ? (
         <img
           className="tile-icon"

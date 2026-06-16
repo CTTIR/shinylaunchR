@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn, type SpawnOptions } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import type { RStatus, RSourcesConfig } from '@shared/types';
 import { logger } from './logger';
 import sourcesJson from './r-sources.json';
@@ -71,6 +72,25 @@ export function resolveManagedRscript(
 
 export function platformKey(platform: NodeJS.Platform, arch: string): string {
   return `${platform}-${arch}`;
+}
+
+/** Reject any managed-R download source that is not plain https. */
+export function assertHttpsSource(url: string): string {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new Error(`invalid R source URL: ${url}`);
+  }
+  if (u.protocol !== 'https:') throw new Error(`R source must be https: ${url}`);
+  return u.href;
+}
+
+/** Verify a downloaded payload against an expected SHA-256 (hex). */
+export function verifySha256(data: Buffer, expectedHex: string): boolean {
+  if (!expectedHex) return false;
+  const actual = createHash('sha256').update(data).digest('hex');
+  return actual.toLowerCase() === expectedHex.toLowerCase();
 }
 
 export type Spawner = (
@@ -160,6 +180,7 @@ export class RRuntimeManager {
       try {
         const child = this.spawner(rscriptPath, ['--version'], {
           stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
         });
         child.stdout?.on('data', (d) => (out += d.toString()));
         child.stderr?.on('data', (d) => (out += d.toString()));
@@ -222,6 +243,14 @@ export class RRuntimeManager {
         `Install R ≥ 4.2 and use "Point to existing R", or add a source to r-sources.json.`;
       logger.warn('r-runtime', msg);
       throw new Error(msg);
+    }
+    // Never fetch a managed-R binary over a non-https source, and require a
+    // checksum to be present before any (future) download/extract is attempted.
+    assertHttpsSource(entry.url);
+    if (!entry.sha256) {
+      throw new Error(
+        `R source for ${key} has no sha256 checksum; refusing to download an unverified binary.`,
+      );
     }
     // A real implementation downloads `entry.url`, verifies `entry.sha256`,
     // and extracts into `this.runtimeDir`. That is deliberately left as a

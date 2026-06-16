@@ -33,7 +33,7 @@ export function HelpPanel({
     <div className="panel">
       <div className="panel-header">
         <h2>Help</h2>
-        <button className="btn ghost" onClick={onClose}>
+        <button className="btn ghost" aria-label="Close panel" onClick={onClose}>
           ✕
         </button>
       </div>

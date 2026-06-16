@@ -10,7 +10,7 @@
  */
 import { spawn, type SpawnOptions } from 'node:child_process';
 import {
-  isValidName,
+  isValidPkg,
   isValidRepo,
   type AppEntry,
   type AppSettings,
@@ -46,7 +46,7 @@ export function safeRepos(url: string): string {
 
 /** Build the R expression to install a CRAN package. */
 export function buildCranScript(pkg: string, lib: string, repos: string): string {
-  if (!isValidName(pkg)) throw new Error(`invalid package: ${pkg}`);
+  if (!isValidPkg(pkg)) throw new Error(`invalid package: ${pkg}`);
   return [
     `lib <- "${rPath(lib)}"`,
     `dir.create(lib, showWarnings = FALSE, recursive = TRUE)`,
@@ -132,6 +132,7 @@ export function installPackage(entry: AppEntry, deps: InstallDeps): Promise<Inst
       const child = spawner(resolved.rPath, ['--vanilla', '-e', script], {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
       });
       const onData = (level: 'info' | 'error') => (buf: Buffer) => {
         const text = buf.toString();

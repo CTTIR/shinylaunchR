@@ -12,6 +12,7 @@ export default defineConfig({
     resolve: { alias: sharedAlias },
     build: {
       outDir: resolve('out/main'),
+      sourcemap: true,
       lib: {
         entry: resolve('src/main/main.ts'),
         formats: ['cjs'],
@@ -26,6 +27,7 @@ export default defineConfig({
     resolve: { alias: sharedAlias },
     build: {
       outDir: resolve('out/preload'),
+      sourcemap: true,
       lib: {
         entry: resolve('src/main/preload.ts'),
         formats: ['cjs'],
@@ -42,6 +44,7 @@ export default defineConfig({
     build: {
       outDir: resolve('out/renderer'),
       emptyOutDir: true,
+      sourcemap: true,
       rollupOptions: {
         input: resolve('src/renderer/index.html'),
       },

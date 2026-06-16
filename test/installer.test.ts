@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildCranScript, buildGithubScript, safeRepos } from '../src/main/installer';
+import { buildCranScript, buildGithubScript, installPackage, safeRepos } from '../src/main/installer';
+import { DEFAULT_SETTINGS, type AppEntry } from '@shared/types';
+import type { RRuntimeManager } from '../src/main/r-runtime';
 
 describe('safeRepos', () => {
   it('accepts clean http(s) mirrors', () => {
@@ -32,5 +34,29 @@ describe('install script builders', () => {
     const s = buildCranScript('molpathR', '/lib', 'https://cloud.r-project.org');
     expect(s).toContain('install.packages("molpathR"');
     expect(s).toContain('INSTALL_OK');
+  });
+});
+
+describe('installPackage degradation (R absent)', () => {
+  it('returns a recoverable error, never throws, when R is unavailable', async () => {
+    const entry: AppEntry = {
+      id: 'a1',
+      name: 'Demo',
+      pkg: 'molpathR',
+      fun: 'mp_run_app',
+      source: { kind: 'cran' },
+      installed: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    const runtime = {
+      resolveRscript: () => undefined,
+      ensureLibrary: () => '/lib',
+      childEnv: () => ({}),
+    } as unknown as RRuntimeManager;
+
+    const result = await installPackage(entry, { runtime, settings: DEFAULT_SETTINGS });
+    expect(result.ok).toBe(false);
+    expect(result.id).toBe('a1');
+    expect(result.message).toMatch(/R is not available/i);
   });
 });

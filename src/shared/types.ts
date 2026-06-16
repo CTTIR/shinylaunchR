@@ -8,14 +8,28 @@
 // Validation regexes — single source of truth, used by both ends.
 // ---------------------------------------------------------------------------
 
-/** A valid R object name (package or function). Never interpolated into a shell. */
+/**
+ * A valid R object name (e.g. a launcher function). Never interpolated into a
+ * shell — only into a fully-qualified `pkg::fun()` call.
+ */
 export const NAME_REGEX = /^[A-Za-z.][A-Za-z0-9._]*$/;
+
+/**
+ * A valid R package name. Stricter than NAME_REGEX: CRAN package names start
+ * with a letter and contain only letters, digits and dots — no underscores,
+ * no leading dot. Keeps the install/launch injection surface minimal.
+ */
+export const PKG_REGEX = /^[A-Za-z][A-Za-z0-9.]*$/;
 
 /** A GitHub "org/repo" or "org/repo@ref" spec. */
 export const REPO_REGEX = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(@[A-Za-z0-9_./-]+)?$/;
 
 export function isValidName(value: string): boolean {
   return NAME_REGEX.test(value);
+}
+
+export function isValidPkg(value: string): boolean {
+  return PKG_REGEX.test(value);
 }
 
 export function isValidRepo(value: string): boolean {

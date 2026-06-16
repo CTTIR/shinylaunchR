@@ -16,6 +16,13 @@ export function applyTheme(pref: ThemePreference): void {
         : 'light'
       : pref;
   document.documentElement.setAttribute('data-theme', effective);
+  // Persist the *preference* so the pre-paint guard in index.html can apply the
+  // correct theme on the next cold start with no flash.
+  try {
+    window.localStorage.setItem('slr-theme', pref);
+  } catch {
+    /* storage unavailable — non-fatal */
+  }
 }
 
 export function ThemeToggle({
@@ -27,7 +34,7 @@ export function ThemeToggle({
 }) {
   const next = () => {
     const idx = ORDER.indexOf(value);
-    onChange(ORDER[(idx + 1) % ORDER.length]);
+    onChange(ORDER[(idx + 1) % ORDER.length] ?? 'system');
   };
   return (
     <button className="btn ghost" onClick={next} title="Toggle theme (dark / light / system)">

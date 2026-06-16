@@ -7,6 +7,7 @@ import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import type { BrowserWindow } from 'electron';
 import {
   isValidName,
+  isValidPkg,
   type AppEntry,
   type AppSettings,
   type AppStatus,
@@ -27,7 +28,7 @@ interface RunningApp {
 
 /** Build the R expression that starts the Shiny app headless on a fixed port. */
 export function buildLaunchScript(pkg: string, fun: string, port: number): string {
-  if (!isValidName(pkg)) throw new Error(`invalid package: ${pkg}`);
+  if (!isValidPkg(pkg)) throw new Error(`invalid package: ${pkg}`);
   if (!isValidName(fun)) throw new Error(`invalid function: ${fun}`);
   return [
     `options(shiny.port = ${port}, shiny.host = "127.0.0.1", shiny.launch.browser = FALSE)`,
@@ -42,16 +43,33 @@ export interface SupervisorDeps {
   killTree?: (pid: number, platform?: NodeJS.Platform) => void;
 }
 
-export function defaultKillTree(pid: number, platform: NodeJS.Platform = process.platform): void {
+export interface KillTreeDeps {
+  spawnFn?: (cmd: string, args: string[], options: SpawnOptions) => ChildProcess;
+  killFn?: (pid: number, signal?: NodeJS.Signals | number) => void;
+}
+
+/**
+ * Kill a child process and its descendants on any OS. On Windows a parent kill
+ * does NOT reap children, so use `taskkill /T`; on POSIX, signal the process
+ * group (negative pid — children share the group via the detached spawn).
+ * Primitives are injectable so both branches are unit-tested without real procs.
+ */
+export function defaultKillTree(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+  deps: KillTreeDeps = {},
+): void {
+  const spawnFn = deps.spawnFn ?? spawn;
+  const killFn = deps.killFn ?? ((p, s) => process.kill(p, s));
   try {
     if (platform === 'win32') {
-      spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
+      spawnFn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
     } else {
       // negative pid kills the whole process group (see detached spawn below)
       try {
-        process.kill(-pid, 'SIGTERM');
+        killFn(-pid, 'SIGTERM');
       } catch {
-        process.kill(pid, 'SIGTERM');
+        killFn(pid, 'SIGTERM');
       }
     }
   } catch {
@@ -140,6 +158,7 @@ export class ShinySupervisor {
       env: runtime.childEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
+      windowsHide: true,
     });
 
     let stderrTail = '';

@@ -10,6 +10,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   isValidName,
+  isValidPkg,
   isValidRepo,
   type AppEntry,
   type AppEntryInput,
@@ -41,7 +42,7 @@ export function validateInput(input: AppEntryInput): AppEntryInput {
   if (!input || typeof input !== 'object') throw new RegistryError('input required');
   const name = String(input.name ?? '').trim();
   if (!name) throw new RegistryError('name is required');
-  if (!isValidName(String(input.pkg ?? ''))) {
+  if (!isValidPkg(String(input.pkg ?? ''))) {
     throw new RegistryError(`invalid package name: ${String(input.pkg)}`);
   }
   if (!isValidName(String(input.fun ?? ''))) {
@@ -71,7 +72,7 @@ function isAppEntry(value: unknown): value is AppEntry {
   if (!value || typeof value !== 'object') return false;
   const e = value as Record<string, unknown>;
   if (typeof e.id !== 'string' || typeof e.name !== 'string') return false;
-  if (typeof e.pkg !== 'string' || !isValidName(e.pkg)) return false;
+  if (typeof e.pkg !== 'string' || !isValidPkg(e.pkg)) return false;
   if (typeof e.fun !== 'string' || !isValidName(e.fun)) return false;
   try {
     validateSource(e.source);
@@ -153,9 +154,9 @@ export class Registry {
 
   update(id: string, input: AppEntryInput): AppEntry {
     const idx = this.apps.findIndex((a) => a.id === id);
-    if (idx < 0) throw new RegistryError(`unknown app: ${id}`);
-    const v = validateInput(input);
     const prev = this.apps[idx];
+    if (idx < 0 || !prev) throw new RegistryError(`unknown app: ${id}`);
+    const v = validateInput(input);
     const next: AppEntry = {
       ...prev,
       name: v.name,
@@ -174,10 +175,12 @@ export class Registry {
   /** Partial patch for server-managed fields (installed flag, timestamps, icon). */
   patch(id: string, patch: Partial<AppEntry>): AppEntry | undefined {
     const idx = this.apps.findIndex((a) => a.id === id);
-    if (idx < 0) return undefined;
-    this.apps[idx] = { ...this.apps[idx], ...patch, id };
+    const prev = this.apps[idx];
+    if (idx < 0 || !prev) return undefined;
+    const next: AppEntry = { ...prev, ...patch, id };
+    this.apps[idx] = next;
     this.persist();
-    return { ...this.apps[idx] };
+    return { ...next };
   }
 
   remove(id: string): boolean {

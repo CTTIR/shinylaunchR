@@ -29,6 +29,7 @@ import { IconManager } from './icons';
 import { installPackage } from './installer';
 import { getSettings, initSettings, setSettings } from './settings';
 import * as credentials from './credentials';
+import { resourcePath } from './resources';
 
 export class AppContext {
   readonly registry: Registry;
@@ -40,6 +41,7 @@ export class AppContext {
   private selectedId: string | null = null;
   private installing = new Set<string>();
   private errors = new Map<string, string>();
+  private menuRebuilder: (() => void) | null = null;
 
   constructor(private readonly userDataDir: string) {
     initSettings(userDataDir);
@@ -66,10 +68,21 @@ export class AppContext {
 
   setSelected(id: string | null): void {
     this.selectedId = id;
+    this.menuRebuilder?.();
   }
 
   getSelected(): string | null {
     return this.selectedId;
+  }
+
+  /** Register a callback that rebuilds the native menu (enabled-state refresh). */
+  setMenuRebuilder(fn: () => void): void {
+    this.menuRebuilder = fn;
+  }
+
+  /** True if any app currently has a running R/Shiny process. */
+  anyRunning(): boolean {
+    return this.supervisor.statuses().length > 0;
   }
 
   private send(channel: string, payload: unknown): void {
@@ -80,6 +93,7 @@ export class AppContext {
 
   broadcastStatus(): void {
     this.send(IPC.evtStatus, this.statuses());
+    this.menuRebuilder?.();
   }
 
   applyTheme(theme: AppSettings['theme']): void {
@@ -215,9 +229,28 @@ export class AppContext {
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
+        nodeIntegrationInSubFrames: false,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
       },
     });
     win.setMenuBarVisibility(false);
+
+    // The window may only ever show this app's own supervised loopback server.
+    // Block navigation elsewhere; route external links to the system browser.
+    const origin = `http://127.0.0.1:${this.supervisor.getRunning(entry.id)?.port ?? ''}`;
+    win.webContents.on('will-navigate', (event, target) => {
+      if (!target.startsWith(origin)) {
+        event.preventDefault();
+        if (/^https:\/\//i.test(target)) void shell.openExternal(target);
+      }
+    });
+    win.webContents.setWindowOpenHandler(({ url: target }) => {
+      if (/^https:\/\//i.test(target)) void shell.openExternal(target);
+      return { action: 'deny' };
+    });
+
     void win.loadURL(url);
     this.supervisor.attachWindow(entry.id, win);
     win.on('closed', () => {
@@ -265,8 +298,7 @@ export class AppContext {
   }
 
   private defaultIconPath(): string {
-    // resources are unpacked alongside the app
-    return path.join(process.resourcesPath ?? app.getAppPath(), 'resources', 'icon.png');
+    return resourcePath('icon.png');
   }
 
   // -- registry import / export -------------------------------------------
@@ -288,9 +320,10 @@ export class AppContext {
       properties: ['openFile'],
       filters: [{ name: 'JSON', extensions: ['json'] }],
     });
-    if (res.canceled || res.filePaths.length === 0) return { ok: false, message: 'Cancelled' };
+    const sourcePath = res.filePaths[0];
+    if (res.canceled || !sourcePath) return { ok: false, message: 'Cancelled' };
     try {
-      const payload = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf-8'));
+      const payload = JSON.parse(fs.readFileSync(sourcePath, 'utf-8'));
       const n = this.registry.importFrom(payload);
       this.broadcastStatus();
       return { ok: true, message: `Imported ${n} app(s).` };
@@ -388,7 +421,8 @@ export class AppContext {
   }
 
   async openExternal(url: string): Promise<OkResult> {
-    if (!/^https?:\/\//i.test(url)) return { ok: false, message: 'Invalid URL' };
+    // Only https — never file:/javascript:/http: from a renderer-supplied string.
+    if (!/^https:\/\//i.test(url)) return { ok: false, message: 'Only https URLs are allowed' };
     await shell.openExternal(url);
     return { ok: true };
   }

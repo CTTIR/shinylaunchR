@@ -1,14 +1,26 @@
-appId: io.github.cttir.shinylaunchr
+appId: io.cttir.shinylaunchR
 productName: shinylaunchR
 copyright: Copyright © 2026 Raban Heller
 directories:
-  output: release
+  output: dist
   buildResources: resources
 files:
   - out/**/*
   - package.json
+extraResources:
+  - from: resources
+    to: resources
+    filter:
+      - "**/*"
 extraMetadata:
   main: out/main/main.js
+# Publish target so `electron-builder --publish always` uploads to a GitHub Release.
+publish:
+  provider: github
+  owner: cttir
+  repo: shinylaunchR
+asar: true
+# Native modules (keytar) must be unpacked from the asar to load at runtime.
 asarUnpack:
   - "**/node_modules/keytar/**"
 win:
@@ -22,8 +34,10 @@ win:
         - x64
 nsis:
   oneClick: false
-  allowToChangeInstallationDirectory: true
   perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
 mac:
   icon: resources/icon.icns
   category: public.app-category.developer-tools
@@ -32,8 +46,16 @@ mac:
       arch:
         - x64
         - arm64
-  # Code signing & notarization: see README "Known limitations".
-  # Produces an unsigned .dmg. Set CSC_LINK / CSC_KEY_PASSWORD to sign.
+    - target: zip # enables auto-update later
+      arch:
+        - x64
+        - arm64
+  # Hardened runtime + entitlements: harmless unsigned, required when notarizing.
+  # Ships UNSIGNED by default — set the signing secrets (see README) to sign.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
 linux:
   icon: resources/icon.png
   category: Development

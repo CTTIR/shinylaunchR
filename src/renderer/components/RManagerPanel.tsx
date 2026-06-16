@@ -24,7 +24,7 @@ export function RManagerPanel({ onClose }: { onClose: () => void }) {
     <div className="panel">
       <div className="panel-header">
         <h2>R Runtime</h2>
-        <button className="btn ghost" onClick={onClose}>
+        <button className="btn ghost" aria-label="Close panel" onClick={onClose}>
           ✕
         </button>
       </div>

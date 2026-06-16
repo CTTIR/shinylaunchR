@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   isValidName,
+  isValidPkg,
   isValidRepo,
   type AppEntry,
   type AppEntryInput,
 } from '@shared/types';
 import { api } from '../lib/api';
+import { useFocusTrap } from '../lib/useFocusTrap';
 
 export interface RegisterDialogProps {
   editing?: AppEntry;
@@ -28,19 +30,20 @@ export function RegisterDialog({ editing, onClose, onSubmit }: RegisterDialogPro
   const [port, setPort] = useState<string>(editing?.fixedPort ? String(editing.fixedPort) : '');
   const [frameless, setFrameless] = useState<boolean>(editing?.frameless ?? false);
   const [pkgTouched, setPkgTouched] = useState(Boolean(editing));
+  const trapRef = useFocusTrap<HTMLDivElement>();
 
   // Auto-suggest package name from "org/repo" until the user edits it.
   useEffect(() => {
     if (kind === 'github' && !pkgTouched) {
       const m = repo.match(/^[^/]+\/([^@]+)/);
-      if (m) setPkg(m[1].replace(/[^A-Za-z0-9._]/g, ''));
+      if (m?.[1]) setPkg(m[1].replace(/[^A-Za-z0-9.]/g, ''));
     }
   }, [repo, kind, pkgTouched]);
 
   const errors = useMemo(() => {
     const e: Record<string, string> = {};
     if (!name.trim()) e.name = 'Display name is required.';
-    if (!isValidName(pkg)) e.pkg = 'Must match ^[A-Za-z.][A-Za-z0-9._]*$';
+    if (!isValidPkg(pkg)) e.pkg = 'Letters, digits and dots only (R package name).';
     if (!isValidName(fun)) e.fun = 'Must match ^[A-Za-z.][A-Za-z0-9._]*$';
     if (kind === 'github' && !isValidRepo(repo)) e.repo = 'Use org/repo or org/repo@ref';
     if (portMode === 'fixed') {
@@ -77,9 +80,20 @@ export function RegisterDialog({ editing, onClose, onSubmit }: RegisterDialogPro
         className="modal"
         role="dialog"
         aria-modal="true"
+        aria-label={editing ? 'Edit app' : 'Add a Shiny app'}
+        ref={trapRef}
         onKeyDown={(e) => {
           if (e.key === 'Escape') onClose();
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit();
+          // Enter submits from any input field (not from buttons/selects).
+          if (
+            e.key === 'Enter' &&
+            (e.target as HTMLElement).tagName === 'INPUT' &&
+            (e.target as HTMLInputElement).type !== 'radio' &&
+            (e.target as HTMLInputElement).type !== 'checkbox'
+          ) {
+            e.preventDefault();
+            submit();
+          }
         }}
       >
         <h2>{editing ? 'Edit app' : 'Add a Shiny app'}</h2>
