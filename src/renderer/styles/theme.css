@@ -275,20 +275,6 @@ a:hover {
   object-fit: contain;
   border-radius: 10px;
 }
-.tile .monogram {
-  width: 52px;
-  height: 52px;
-  border-radius: 12px;
-  /* Deep R blue field so the white initials stay legible. */
-  background: var(--accent-strong);
-  color: var(--accent-contrast);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-mono);
-  font-weight: 600;
-  font-size: 20px;
-}
 /* Hex tile motif: shape = "app", colour = family (colored=package, grey=not). */
 .tile .hex-icon {
   display: block;
@@ -374,23 +360,6 @@ a:hover {
   font-size: 34px;
   font-weight: 300;
   line-height: 1;
-}
-
-/* ---- empty state ---- */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  height: 100%;
-  text-align: center;
-  color: var(--text-dim);
-}
-.empty-state h2 {
-  margin: 0;
-  font-weight: 600;
-  color: var(--text);
 }
 
 /* ---- modal ---- */
