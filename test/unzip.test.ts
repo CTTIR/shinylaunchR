@@ -99,6 +99,14 @@ describe('extractZipBuffer', () => {
     expect(() => extractZipBuffer(Buffer.from('not a zip'), dir)).toThrow(ZipError);
   });
 
+  it('rejects a ZIP64 archive rather than mis-extracting', () => {
+    // A valid single-entry zip, but with the EOCD central-dir offset set to the
+    // ZIP64 sentinel (0xffffffff) to simulate a ZIP64 container.
+    const zip = makeZip([{ name: 'app.R', content: 'x' }]);
+    zip.writeUInt32LE(0xffffffff, zip.length - 22 + 16);
+    expect(() => extractZipBuffer(zip, dir)).toThrow(/ZIP64/);
+  });
+
   it('extractZipFile reads from disk', () => {
     const zipPath = path.join(dir, 'a.zip');
     fs.writeFileSync(zipPath, makeZip([{ name: 'app.R', content: 'x' }]));

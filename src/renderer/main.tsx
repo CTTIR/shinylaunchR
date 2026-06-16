@@ -128,8 +128,20 @@ function App() {
   };
 
   const submitDialog = async (input: AppEntryInput) => {
-    if (dialog.editing) await api.updateApp(dialog.editing.id, input);
-    else {
+    if (dialog.editing) {
+      await api.updateApp(dialog.editing.id, input);
+    } else {
+      // Trust gate: a Shiny-file app runs R code from those files on launch, and
+      // a hosted URL loads remote content — confirm before adding either.
+      if (input.source.kind === 'source' || input.source.kind === 'url') {
+        const warning =
+          input.source.kind === 'source'
+            ? `Add "${input.name}"?\n\nIts files will be staged on this computer and its R ` +
+              `code will run when you launch it. Only add Shiny apps you trust.`
+            : `Add "${input.name}"?\n\nThis opens a remote web page in an isolated window. ` +
+              `Only add URLs you trust.`;
+        if (!window.confirm(warning)) return; // keep the dialog open
+      }
       setLogOpen(true);
       await api.addApp(input);
     }

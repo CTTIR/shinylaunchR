@@ -32,7 +32,12 @@ import { Registry } from './registry';
 import { RRuntimeManager } from './r-runtime';
 import { ShinySupervisor } from './shiny-supervisor';
 import { IconManager } from './icons';
-import { installPackage, installSourceDeps, verifyPackageLoads } from './installer';
+import {
+  installPackage,
+  installSourceDeps,
+  verifyNamespacesLoad,
+  verifyPackageLoads,
+} from './installer';
 import { removeStaged, scanDependencies, stageSource } from './source-apps';
 import { getSettings, initSettings, setSettings } from './settings';
 import * as credentials from './credentials';
@@ -300,6 +305,21 @@ export class AppContext {
         }
         this.registry.patch(id, { stagedPath: staged.appDir });
         entry = this.registry.get(id)!;
+      }
+      // Pre-launch probe (the source analogue of the package load gate): confirm
+      // the app's scanned dependencies resolve before spawning R into runApp.
+      const probe = await verifyNamespacesLoad(scanDependencies(entry.stagedPath!), {
+        runtime: this.runtime,
+      });
+      if (!probe.ok) {
+        const detail = probe.missing.length ? ` (missing: ${probe.missing.join(', ')})` : '';
+        const message =
+          `App "${entry.name}" can't load${detail} — a dependency may be missing. ` +
+          `Try Reinstall / Update to install its dependencies.`;
+        this.errors.set(id, message);
+        logger.error('shiny', message, id);
+        this.broadcastStatus();
+        return { ok: false, id, message };
       }
     }
 

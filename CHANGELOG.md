@@ -6,6 +6,43 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Three app families.** Apps are grouped into **Packages** (CRAN / GitHub
+  package), **Shiny apps** (non-package files), and **Hosted URLs**, derived from
+  `source.kind` via a single `appFamily()` helper.
+- **Shiny apps as files.** Add non-package Shiny apps by uploading a `.zip`,
+  picking a local folder, or pointing at a zip URL / gist / GitHub *source* repo.
+  Files are staged under `userData/apps/<id>/` (extracted/copied, never run in
+  place), the entry (`app.R`, or `ui.R`+`server.R`, honoring an app sub-directory)
+  is located, dependencies are scanned and installed, and the app runs via
+  `shiny::runApp()`.
+- **Hosted URLs.** Register an already-running Shiny app by its `https://` URL;
+  it opens in an isolated (per-app, non-persistent partition), no-preload,
+  https-only window with nothing installed.
+- **Grouped dashboard.** Three labeled, divided sections — each ending in its own
+  family-preset `+` tile — replace the single grid; the Add dialog adapts its
+  fields to the chosen family.
+- **Family-colored hex icons.** A hex is the shared tile motif; colour signals the
+  family (colored = package with its real logo or a generic colored hex; grey =
+  Shiny file / hosted URL, with a globe glyph for URLs). A user icon overrides.
+- **Dependency-free zip extraction** (built-in `zlib`) with zip-slip protection.
+- **Trust confirmation** before adding a Shiny-file or hosted-URL app.
+- **Pre-launch dependency probe** for Shiny-file apps (the source analogue of the
+  package load gate).
+
+### Changed
+- `pkg`/`fun` are now optional and required only for the Packages family; existing
+  `cran`/`github` registry entries migrate into Packages unchanged.
+
+### Fixed
+- Package hex auto-resolve: the R probe's statements were joined with a space
+  (invalid R, silent failure) — now newline-joined.
+- Source dependency installs are resilient to scan false positives: a batch
+  install falls back to per-package `tryCatch`, so one unresolvable name can't
+  abort the whole install.
+- Remote fetches (zip URL / gist / GitHub source) now time out instead of hanging
+  staging indefinitely.
+
 ## [0.1.0] - 2026-06-16
 
 Initial release.

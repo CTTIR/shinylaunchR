@@ -159,27 +159,103 @@ export function buildSourceInstallScript(
   const valid = [...new Set(pkgs.filter(isValidPkg))];
   const list = valid.includes('shiny') ? valid : ['shiny', ...valid];
   const vec = list.map((p) => `"${p}"`).join(', ');
-  const installMissing = preferPak
-    ? `pak::pkg_install(missing, lib = lib, dependencies = TRUE, upgrade = FALSE, ask = FALSE)`
-    : `utils::install.packages(missing, lib = lib, repos = "${repos}", dependencies = TRUE)`;
+  // `target` is an R expression naming what to install (the whole `missing`
+  // vector, or a single `p`). The scan is best-effort and can include false
+  // positives (e.g. a `pkg::` reference inside a comment), so a single
+  // unresolvable name must NOT abort the install: try the batch first (keeps
+  // pak's cross-package graph resolution), then fall back to installing each
+  // package independently under tryCatch. Only `shiny` is load-gated.
+  const installExpr = (target: string) =>
+    preferPak
+      ? `pak::pkg_install(${target}, lib = lib, dependencies = TRUE, upgrade = FALSE, ask = FALSE)`
+      : `utils::install.packages(${target}, lib = lib, repos = "${repos}", dependencies = TRUE)`;
   return [
     ...libSetup(lib, repos),
     ...(preferPak ? [ensureHelper('pak', repos)] : []),
     `pkgs <- c(${vec})`,
     `missing <- pkgs[!vapply(pkgs, function(p) requireNamespace(p, quietly = TRUE), logical(1))]`,
-    `if (length(missing) > 0) { ` +
-      `cat("Installing app dependencies:", paste(missing, collapse = ", "), "\\n"); ` +
-      `${installMissing} }`,
+    `if (length(missing) > 0) {`,
+    `  cat("Installing app dependencies:", paste(missing, collapse = ", "), "\\n")`,
+    `  ok <- tryCatch({ ${installExpr('missing')}; TRUE },`,
+    `    error = function(e) { cat("Batch install failed:", conditionMessage(e), "\\n"); FALSE })`,
+    `  if (!isTRUE(ok)) for (p in missing) tryCatch(${installExpr('p')},`,
+    `    error = function(e) cat("Could not install", p, "-", conditionMessage(e), "\\n"))`,
+    `}`,
     `if (!requireNamespace("shiny", quietly = TRUE)) ` +
       `stop("shiny is required but could not be installed")`,
     `cat("INSTALL_OK\\n")`,
-  ].join('; ');
+  ].join('\n');
 }
 
 /** Build a quick R expression that reports whether `pkg` loads in the managed lib. */
 export function buildLoadCheckScript(pkg: string): string {
   if (!isValidPkg(pkg)) throw new Error(`invalid package: ${pkg}`);
   return `if (requireNamespace("${pkg}", quietly = TRUE)) cat("LOAD_OK\\n") else cat("LOAD_FAIL\\n")`;
+}
+
+/**
+ * Build an R expression that reports which of `pkgs` cannot be loaded from the
+ * managed library. Emits `LOAD_OK` when all resolve, else `LOAD_MISSING:<csv>`.
+ * Used as the SHINY FILE pre-launch probe (the source analogue of the package
+ * `verifyPackageLoads` gate).
+ */
+export function buildNamespacesLoadScript(pkgs: string[]): string {
+  const vec = [...new Set(pkgs.filter(isValidPkg))].map((p) => `"${p}"`).join(', ');
+  return [
+    `pkgs <- c(${vec})`,
+    `missing <- pkgs[!vapply(pkgs, function(p) requireNamespace(p, quietly = TRUE), logical(1))]`,
+    `if (length(missing) == 0) cat("LOAD_OK\\n") else ` +
+      `cat("LOAD_MISSING:", paste(missing, collapse = ","), "\\n", sep = "")`,
+  ].join('\n');
+}
+
+export interface NamespaceLoadResult {
+  ok: boolean;
+  missing: string[];
+}
+
+/**
+ * Probe whether every package in `pkgs` loads from the managed library. Returns
+ * `{ ok: false }` if R is unavailable or the probe errors. Never throws.
+ */
+export function verifyNamespacesLoad(
+  pkgs: string[],
+  deps: LoadCheckDeps,
+): Promise<NamespaceLoadResult> {
+  const resolved = deps.runtime.resolveRscript();
+  if (!resolved) return Promise.resolve({ ok: false, missing: [] });
+  const script = buildNamespacesLoadScript(pkgs);
+  const spawner = deps.spawner ?? spawn;
+  const env = deps.runtime.childEnv();
+  return new Promise<NamespaceLoadResult>((resolve) => {
+    let out = '';
+    let settled = false;
+    const finish = (v: NamespaceLoadResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(v);
+    };
+    try {
+      const child = spawner(resolved.rPath, ['--vanilla', '-e', script], {
+        env,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        windowsHide: true,
+      });
+      child.stdout?.on('data', (b: Buffer) => (out += b.toString()));
+      child.on('error', () => finish({ ok: false, missing: [] }));
+      child.on('close', () => {
+        if (/LOAD_OK/.test(out)) return finish({ ok: true, missing: [] });
+        const m = out.match(/LOAD_MISSING:([^\r\n]*)/);
+        if (m) {
+          const missing = m[1]!.split(',').map((s) => s.trim()).filter(Boolean);
+          return finish({ ok: false, missing });
+        }
+        finish({ ok: false, missing: [] });
+      });
+    } catch {
+      finish({ ok: false, missing: [] });
+    }
+  });
 }
 
 export interface InstallDeps {

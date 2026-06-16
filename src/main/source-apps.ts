@@ -185,6 +185,9 @@ export function scanDependencies(appDir: string): string[] {
 // Remote fetch (https-only, redirect-following)
 // ---------------------------------------------------------------------------
 
+/** Abort a remote fetch that stalls (no socket activity) for this long. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 function httpsGet(url: string, token: string | null, redirects = 0): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     if (redirects > 5) return reject(new Error('too many redirects'));
@@ -200,25 +203,26 @@ function httpsGet(url: string, token: string | null, redirects = 0): Promise<Buf
     if (token && /(^|\.)github(usercontent)?\.com$/.test(u.hostname)) {
       headers.Authorization = `token ${token}`;
     }
-    https
-      .get(u, { headers }, (res) => {
-        const status = res.statusCode ?? 0;
-        if (status >= 300 && status < 400 && res.headers.location) {
-          res.resume();
-          const next = new URL(res.headers.location, u).href;
-          resolve(httpsGet(next, token, redirects + 1));
-          return;
-        }
-        if (status !== 200) {
-          res.resume();
-          return reject(new Error(`HTTP ${status} fetching ${u.hostname}${u.pathname}`));
-        }
-        const chunks: Buffer[] = [];
-        res.on('data', (d: Buffer) => chunks.push(d));
-        res.on('end', () => resolve(Buffer.concat(chunks)));
-        res.on('error', reject);
-      })
-      .on('error', reject);
+    const req = https.get(u, { headers, timeout: REQUEST_TIMEOUT_MS }, (res) => {
+      const status = res.statusCode ?? 0;
+      if (status >= 300 && status < 400 && res.headers.location) {
+        res.resume();
+        const next = new URL(res.headers.location, u).href;
+        resolve(httpsGet(next, token, redirects + 1));
+        return;
+      }
+      if (status !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP ${status} fetching ${u.hostname}${u.pathname}`));
+      }
+      const chunks: Buffer[] = [];
+      res.on('data', (d: Buffer) => chunks.push(d));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    });
+    // A stalled connection must not hang staging forever: abort on timeout.
+    req.on('timeout', () => req.destroy(new Error(`request timed out after ${REQUEST_TIMEOUT_MS}ms`)));
+    req.on('error', reject);
   });
 }
 

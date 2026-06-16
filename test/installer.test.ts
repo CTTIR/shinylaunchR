@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildCranScript, buildGithubScript, installPackage, safeRepos } from '../src/main/installer';
+import {
+  buildCranScript,
+  buildGithubScript,
+  buildNamespacesLoadScript,
+  buildSourceInstallScript,
+  installPackage,
+  safeRepos,
+} from '../src/main/installer';
 import { DEFAULT_SETTINGS, type AppEntry } from '@shared/types';
 import type { RRuntimeManager } from '../src/main/r-runtime';
 
@@ -58,6 +65,42 @@ describe('install script builders', () => {
     expect(s).toContain('remotes::install_github("cttir/zhncommandR"');
     expect(s).toContain('dependencies = TRUE');
     expect(s).toContain('upgrade = "never"');
+  });
+});
+
+describe('buildSourceInstallScript', () => {
+  it('always ensures shiny, installs missing only, and gates on shiny', () => {
+    const s = buildSourceInstallScript(['dplyr'], '/lib', 'https://cloud.r-project.org', false);
+    expect(s).toContain('"shiny"');
+    expect(s).toContain('"dplyr"');
+    expect(s).toContain('requireNamespace("shiny"');
+    expect(s).toContain('INSTALL_OK');
+  });
+
+  it('is resilient: a batch failure falls back to per-package tryCatch', () => {
+    const s = buildSourceInstallScript(['dplyr', 'ggplot2'], '/lib', 'https://x', true);
+    expect(s).toContain('tryCatch');
+    expect(s).toContain('for (p in missing)');
+    // a false-positive name must not be able to abort the whole install
+    expect(s).not.toMatch(/stop\(.*missing/);
+  });
+
+  it('drops invalid scanned names defensively', () => {
+    const s = buildSourceInstallScript(['ok.pkg', 'bad;name', '../evil'], '/lib', 'https://x', false);
+    expect(s).toContain('"ok.pkg"');
+    expect(s).not.toContain('bad;name');
+    expect(s).not.toContain('evil');
+  });
+});
+
+describe('buildNamespacesLoadScript', () => {
+  it('reports LOAD_OK / LOAD_MISSING over the validated set', () => {
+    const s = buildNamespacesLoadScript(['shiny', 'dplyr', 'bad;name']);
+    expect(s).toContain('"shiny"');
+    expect(s).toContain('"dplyr"');
+    expect(s).not.toContain('bad;name');
+    expect(s).toContain('LOAD_OK');
+    expect(s).toContain('LOAD_MISSING');
   });
 });
 
