@@ -27,7 +27,7 @@ export function ThemeToggle({
 }) {
   const next = () => {
     const idx = ORDER.indexOf(value);
-    onChange(ORDER[(idx + 1) % ORDER.length]);
+    onChange(ORDER[(idx + 1) % ORDER.length] ?? 'system');
   };
   return (
     <button className="btn ghost" onClick={next} title="Toggle theme (dark / light / system)">

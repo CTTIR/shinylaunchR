@@ -72,7 +72,7 @@ if (!gotLock) {
     }
   });
 
-  app.whenReady().then(() => {
+  void app.whenReady().then(() => {
     bootstrap();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {

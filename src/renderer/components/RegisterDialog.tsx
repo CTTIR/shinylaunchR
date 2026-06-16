@@ -33,7 +33,7 @@ export function RegisterDialog({ editing, onClose, onSubmit }: RegisterDialogPro
   useEffect(() => {
     if (kind === 'github' && !pkgTouched) {
       const m = repo.match(/^[^/]+\/([^@]+)/);
-      if (m) setPkg(m[1].replace(/[^A-Za-z0-9._]/g, ''));
+      if (m?.[1]) setPkg(m[1].replace(/[^A-Za-z0-9._]/g, ''));
     }
   }, [repo, kind, pkgTouched]);
 

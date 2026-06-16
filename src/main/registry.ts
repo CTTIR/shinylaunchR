@@ -153,9 +153,9 @@ export class Registry {
 
   update(id: string, input: AppEntryInput): AppEntry {
     const idx = this.apps.findIndex((a) => a.id === id);
-    if (idx < 0) throw new RegistryError(`unknown app: ${id}`);
-    const v = validateInput(input);
     const prev = this.apps[idx];
+    if (idx < 0 || !prev) throw new RegistryError(`unknown app: ${id}`);
+    const v = validateInput(input);
     const next: AppEntry = {
       ...prev,
       name: v.name,
@@ -174,10 +174,12 @@ export class Registry {
   /** Partial patch for server-managed fields (installed flag, timestamps, icon). */
   patch(id: string, patch: Partial<AppEntry>): AppEntry | undefined {
     const idx = this.apps.findIndex((a) => a.id === id);
-    if (idx < 0) return undefined;
-    this.apps[idx] = { ...this.apps[idx], ...patch, id };
+    const prev = this.apps[idx];
+    if (idx < 0 || !prev) return undefined;
+    const next: AppEntry = { ...prev, ...patch, id };
+    this.apps[idx] = next;
     this.persist();
-    return { ...this.apps[idx] };
+    return { ...next };
   }
 
   remove(id: string): boolean {

@@ -288,9 +288,10 @@ export class AppContext {
       properties: ['openFile'],
       filters: [{ name: 'JSON', extensions: ['json'] }],
     });
-    if (res.canceled || res.filePaths.length === 0) return { ok: false, message: 'Cancelled' };
+    const sourcePath = res.filePaths[0];
+    if (res.canceled || !sourcePath) return { ok: false, message: 'Cancelled' };
     try {
-      const payload = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf-8'));
+      const payload = JSON.parse(fs.readFileSync(sourcePath, 'utf-8'));
       const n = this.registry.importFrom(payload);
       this.broadcastStatus();
       return { ok: true, message: `Imported ${n} app(s).` };

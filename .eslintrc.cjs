@@ -6,6 +6,8 @@ module.exports = {
     ecmaVersion: 2022,
     sourceType: 'module',
     ecmaFeatures: { jsx: true },
+    project: './tsconfig.json',
+    tsconfigRootDir: __dirname,
   },
   env: {
     es2022: true,
@@ -29,6 +31,11 @@ module.exports = {
     '@typescript-eslint/no-explicit-any': 'off',
     '@typescript-eslint/explicit-module-boundary-types': 'off',
     'no-empty': ['error', { allowEmptyCatch: true }],
+    eqeqeq: ['error', 'always', { null: 'ignore' }],
+    '@typescript-eslint/no-floating-promises': 'error',
+    // Async handlers on JSX attributes (onClick={asyncFn}) are idiomatic in
+    // React and safe here; keep the check for statement positions only.
+    '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: { attributes: false } }],
   },
   ignorePatterns: ['out/', 'dist/', 'release/', 'node_modules/', '*.config.ts', 'scripts/*.mjs'],
 };
