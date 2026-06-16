@@ -5,9 +5,12 @@
  */
 
 :root {
-  --accent: #5e2c8e; /* suite purple */
-  --accent-soft: rgba(94, 44, 142, 0.16);
-  --accent-strong: #7a3fb0;
+  /* R blue accent (matches the app icon: #9FC6E8 → #75AADB → #2B6CB0). */
+  --accent: #75aadb; /* core R blue: borders, rings, links, running state */
+  --accent-strong: #2b6cb0; /* deep R blue: filled controls (white text passes AA) */
+  --accent-pressed: #1f5388; /* darker still: pressed/hover on filled controls */
+  --accent-soft: rgba(117, 170, 219, 0.18); /* subtle fills, ring glow */
+  --accent-contrast: #ffffff; /* text/icon on top of accent fills */
 
   --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
@@ -17,9 +20,8 @@
   --tile-size: 132px;
 
   --status-grey: #6b6b72;
-  --status-blue: #1565c0;
+  --status-installing: #d6932f; /* amber — distinct from the blue accent/running */
   --status-green: #2e9e5b;
-  --status-purple: #7a3fb0;
   --status-red: #d24b4b;
 }
 
@@ -33,9 +35,12 @@
   --border: #2f2f37;
   --border-strong: #3c3c46;
   --overlay: rgba(0, 0, 0, 0.55);
-  --accent: #8a5cc8;
-  --accent-soft: rgba(138, 92, 200, 0.16);
-  --accent-strong: #a07cd8;
+  /* On the near-black surface the light core blue reads well for links/borders. */
+  --accent: #75aadb;
+  --accent-strong: #2b6cb0;
+  --accent-pressed: #235d97;
+  --accent-soft: rgba(117, 170, 219, 0.18);
+  --accent-contrast: #ffffff;
 }
 
 :root[data-theme='light'] {
@@ -48,9 +53,12 @@
   --border: #e0e0dd;
   --border-strong: #cfcfca;
   --overlay: rgba(0, 0, 0, 0.35);
-  --accent: #5e2c8e;
-  --accent-soft: rgba(94, 44, 142, 0.1);
-  --accent-strong: #1565c0; /* Hugo Coder blue as secondary */
+  /* On white, use the deeper blue so links/borders/text stay legible (AA). */
+  --accent: #2b6cb0;
+  --accent-strong: #1f5388;
+  --accent-pressed: #16314f;
+  --accent-soft: rgba(43, 108, 176, 0.12);
+  --accent-contrast: #ffffff;
 }
 
 * {
@@ -157,13 +165,14 @@ a:hover {
   border-color: var(--accent);
 }
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-.btn.primary:hover {
+  /* Deep R blue fill so the white label meets AA (core #75AADB would not). */
   background: var(--accent-strong);
   border-color: var(--accent-strong);
+  color: var(--accent-contrast);
+}
+.btn.primary:hover {
+  background: var(--accent-pressed);
+  border-color: var(--accent-pressed);
 }
 .btn.ghost {
   background: transparent;
@@ -225,8 +234,9 @@ a:hover {
   width: 52px;
   height: 52px;
   border-radius: 12px;
-  background: var(--accent);
-  color: #fff;
+  /* Deep R blue field so the white initials stay legible. */
+  background: var(--accent-strong);
+  color: var(--accent-contrast);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -254,8 +264,8 @@ a:hover {
   background: transparent; /* not-installed = hollow ring */
 }
 .tile .status-dot.installing {
-  border-color: var(--status-blue);
-  background: var(--status-blue);
+  border-color: var(--status-installing);
+  background: var(--status-installing);
   animation: pulse 1.2s infinite;
 }
 .tile .status-dot.ready {
@@ -263,9 +273,9 @@ a:hover {
   background: var(--status-green);
 }
 .tile .status-dot.running {
-  border-color: var(--status-purple);
-  background: var(--status-purple);
-  box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 3.5px var(--status-purple); /* double ring */
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 3.5px var(--accent); /* double ring */
 }
 .tile .status-dot.error {
   border-radius: 2px; /* square = error, distinct without colour */
