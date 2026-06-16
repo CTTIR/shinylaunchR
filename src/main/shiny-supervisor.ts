@@ -8,7 +8,7 @@
  * (window ↔ process ↔ port) triple, and guarantees the whole process tree is
  * killed on stop/quit — no orphaned R processes ever.
  */
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import type { BrowserWindow } from 'electron';
 import {
   isValidName,
@@ -20,6 +20,7 @@ import {
 } from '@shared/types';
 import { logger } from './logger';
 import type { RRuntimeManager } from './r-runtime';
+import type { PidLedger } from './pid-ledger';
 import { findFreePortInRange, getFreePort, isPortOpen, waitForPort } from './port';
 
 interface RunningApp {
@@ -61,6 +62,36 @@ export interface SupervisorDeps {
   spawner?: (cmd: string, args: string[], options: SpawnOptions) => ChildProcess;
   /** Injectable kill-tree (defaults to a cross-platform implementation). */
   killTree?: (pid: number, platform?: NodeJS.Platform) => void;
+  /** Crash-safe PID store; when set, enables orphan reaping across restarts. */
+  ledger?: PidLedger;
+  /** Identity guard for reaping: is `pid` still one of *our* R processes? */
+  isOrphan?: (pid: number) => boolean;
+}
+
+/**
+ * Best-effort check that `pid` is still alive AND is an R-family process, so a
+ * recycled PID (the OS reusing it for an unrelated program after our R crashed)
+ * is never killed during orphan reaping. Uses `tasklist` on Windows and `ps`
+ * elsewhere; any failure is treated as "not ours" (safer to skip than to kill).
+ */
+export function defaultIsOrphanRProcess(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  try {
+    if (platform === 'win32') {
+      const out =
+        spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/NH', '/FO', 'CSV'], {
+          encoding: 'utf8',
+          windowsHide: true,
+        }).stdout ?? '';
+      return /^"(Rterm|Rscript|R)\.exe"/im.test(out);
+    }
+    const out = spawnSync('ps', ['-p', String(pid), '-o', 'comm='], { encoding: 'utf8' }).stdout ?? '';
+    return /(^|\/)(R|Rscript)$/m.test(out.trim());
+  } catch {
+    return false;
+  }
 }
 
 export interface KillTreeDeps {
@@ -101,11 +132,34 @@ export class ShinySupervisor {
   private running = new Map<string, RunningApp>();
   private spawner: (cmd: string, args: string[], options: SpawnOptions) => ChildProcess;
   private killTree: (pid: number, platform?: NodeJS.Platform) => void;
+  private ledger?: PidLedger;
+  private isOrphan: (pid: number) => boolean;
   private onStatusChange?: () => void;
 
   constructor(deps: SupervisorDeps = {}) {
     this.spawner = deps.spawner ?? spawn;
     this.killTree = deps.killTree ?? defaultKillTree;
+    this.ledger = deps.ledger;
+    this.isOrphan = deps.isOrphan ?? defaultIsOrphanRProcess;
+  }
+
+  /**
+   * Kill R processes left over from a previous session that crashed without a
+   * clean `stopAll` (so their PIDs are still in the ledger). Each is verified to
+   * still be a live R process before being killed, guarding against PID reuse.
+   * Returns the number reaped. The ledger is cleared afterwards.
+   */
+  reapOrphans(): number {
+    if (!this.ledger) return 0;
+    let killed = 0;
+    for (const pid of this.ledger.list()) {
+      if (this.isOrphan(pid)) {
+        this.killTree(pid);
+        killed++;
+      }
+    }
+    this.ledger.clear();
+    return killed;
   }
 
   setStatusListener(fn: () => void): void {
@@ -205,11 +259,13 @@ export class ShinySupervisor {
 
     const record: RunningApp = { id: entry.id, pid: child.pid, port, url, child };
     this.running.set(entry.id, record);
+    if (record.pid) this.ledger?.add(record.pid);
 
     child.on('close', (code) => {
       logger.info('shiny', `Process exited (code ${code}).`, entry.id);
       const r = this.running.get(entry.id);
       this.running.delete(entry.id);
+      if (record.pid) this.ledger?.remove(record.pid);
       this.onStatusChange?.();
       if (r?.window && !r.window.isDestroyed()) {
         r.window.close();
@@ -242,7 +298,10 @@ export class ShinySupervisor {
     const r = this.running.get(id);
     if (!r) return;
     logger.info('shiny', 'Stopping app.', id);
-    if (r.pid) this.killTree(r.pid);
+    if (r.pid) {
+      this.killTree(r.pid);
+      this.ledger?.remove(r.pid);
+    }
     try {
       r.child.kill();
     } catch {

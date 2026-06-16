@@ -73,6 +73,31 @@ function ensureHelper(helper: 'pak' | 'remotes', repos: string): string {
 }
 
 /**
+ * R definition of `.slr_install`, a one-shot retry wrapper around an install
+ * call. On Windows, pak/install.packages can fail to move a freshly-built
+ * package into the managed library when a file in the destination is briefly
+ * locked — most often antivirus (Defender) scanning the just-written `.dll`, or
+ * a stale `00LOCK-<pkg>` directory left by a previous interrupted install ("!
+ * Failed to move installed package …"). Both clear on their own, so on any
+ * install error we remove stale `00LOCK` dirs, pause for the lock to release,
+ * and retry the install exactly once before letting the error propagate. The
+ * built binary is cached, so the retry is cheap (it redoes only the move).
+ */
+function installRetryHelper(): string {
+  return (
+    `.slr_install <- function(thunk) tryCatch(thunk(), error = function(e) { ` +
+    `cat("Install step failed (", conditionMessage(e), "); clearing stale locks and retrying once...\\n", sep = ""); ` +
+    `unlink(list.files(lib, pattern = "^00LOCK", full.names = TRUE), recursive = TRUE, force = TRUE); ` +
+    `Sys.sleep(3); thunk() })`
+  );
+}
+
+/** Wrap an install R-expression so it runs under the one-shot `.slr_install` retry. */
+function retry(expr: string): string {
+  return `.slr_install(function() ${expr})`;
+}
+
+/**
  * Final lines: confirm the freshly-installed target package actually loads
  * (its namespace + hard deps resolve) before emitting the INSTALL_OK sentinel.
  * A missing dependency makes this `stop()`, so the install is reported as failed
@@ -102,12 +127,14 @@ export function buildCranScript(
   const installer = preferPak
     ? [
         ensureHelper('pak', repos),
+        installRetryHelper(),
         `cat("Installing ${pkg} and its full dependency tree via pak...\\n")`,
-        `pak::pkg_install("${pkg}", lib = lib, dependencies = TRUE, upgrade = FALSE, ask = FALSE)`,
+        retry(`pak::pkg_install("${pkg}", lib = lib, dependencies = TRUE, upgrade = FALSE, ask = FALSE)`),
       ]
     : [
+        installRetryHelper(),
         `cat("Installing ${pkg} and its full dependency tree via install.packages...\\n")`,
-        `utils::install.packages("${pkg}", lib = lib, repos = "${repos}", dependencies = TRUE)`,
+        retry(`utils::install.packages("${pkg}", lib = lib, repos = "${repos}", dependencies = TRUE)`),
       ];
   return [...libSetup(lib, repos), ...installer, ...loadGate(pkg)].join('; ');
 }
@@ -131,13 +158,15 @@ export function buildGithubScript(
   const installer = preferPak
     ? [
         ensureHelper('pak', repos),
+        installRetryHelper(),
         `cat("Installing ${repo} and its full dependency tree via pak...\\n")`,
-        `pak::pkg_install("${repo}", lib = lib, dependencies = TRUE, upgrade = FALSE, ask = FALSE)`,
+        retry(`pak::pkg_install("${repo}", lib = lib, dependencies = TRUE, upgrade = FALSE, ask = FALSE)`),
       ]
     : [
         ensureHelper('remotes', repos),
+        installRetryHelper(),
         `cat("Installing ${repo} and its full dependency tree via remotes...\\n")`,
-        `remotes::install_github("${repo}", lib = lib, dependencies = TRUE, upgrade = "never")`,
+        retry(`remotes::install_github("${repo}", lib = lib, dependencies = TRUE, upgrade = "never")`),
       ];
   return [...libSetup(lib, repos), ...installer, ...loadGate(pkg)].join('; ');
 }
@@ -172,13 +201,14 @@ export function buildSourceInstallScript(
   return [
     ...libSetup(lib, repos),
     ...(preferPak ? [ensureHelper('pak', repos)] : []),
+    installRetryHelper(),
     `pkgs <- c(${vec})`,
     `missing <- pkgs[!vapply(pkgs, function(p) requireNamespace(p, quietly = TRUE), logical(1))]`,
     `if (length(missing) > 0) {`,
     `  cat("Installing app dependencies:", paste(missing, collapse = ", "), "\\n")`,
-    `  ok <- tryCatch({ ${installExpr('missing')}; TRUE },`,
+    `  ok <- tryCatch({ ${retry(installExpr('missing'))}; TRUE },`,
     `    error = function(e) { cat("Batch install failed:", conditionMessage(e), "\\n"); FALSE })`,
-    `  if (!isTRUE(ok)) for (p in missing) tryCatch(${installExpr('p')},`,
+    `  if (!isTRUE(ok)) for (p in missing) tryCatch(${retry(installExpr('p'))},`,
     `    error = function(e) cat("Could not install", p, "-", conditionMessage(e), "\\n"))`,
     `}`,
     `if (!requireNamespace("shiny", quietly = TRUE)) ` +

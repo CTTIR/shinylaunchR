@@ -31,6 +31,8 @@ import { logger } from './logger';
 import { Registry } from './registry';
 import { RRuntimeManager } from './r-runtime';
 import { ShinySupervisor } from './shiny-supervisor';
+import { PidLedger } from './pid-ledger';
+import { cleanForReinstall, removeInstalledPackage } from './library';
 import { IconManager } from './icons';
 import {
   installPackage,
@@ -59,7 +61,9 @@ export class AppContext {
     initSettings(userDataDir);
     this.registry = new Registry(path.join(userDataDir, 'registry.json'));
     this.runtime = new RRuntimeManager({ userDataDir });
-    this.supervisor = new ShinySupervisor();
+    this.supervisor = new ShinySupervisor({
+      ledger: new PidLedger(path.join(userDataDir, 'running-pids.json')),
+    });
     this.icons = new IconManager(path.join(userDataDir, 'icons'));
 
     this.supervisor.setStatusListener(() => this.broadcastStatus());
@@ -95,6 +99,19 @@ export class AppContext {
   /** True if any app currently has a running R/Shiny process. */
   anyRunning(): boolean {
     return this.supervisor.statuses().length > 0;
+  }
+
+  /**
+   * Reap R processes orphaned by a previous session that crashed or was force
+   * -killed (skipping the normal `stopAll`). Those leftovers keep ports bound
+   * and — on Windows — hold compiled-package DLLs locked, which blocks the next
+   * reinstall. Run once at startup, before the user can trigger an install.
+   */
+  reapOrphanProcesses(): void {
+    const killed = this.supervisor.reapOrphans();
+    if (killed > 0) {
+      logger.info('main', `Reaped ${killed} orphaned R process(es) from a previous session.`);
+    }
   }
 
   private send(channel: string, payload: unknown): void {
@@ -165,13 +182,21 @@ export class AppContext {
     if (entry?.iconPath) this.deleteCachedIcon(entry.iconPath);
     // Drop any staged source-app files (no effect for package/url families).
     removeStaged(this.userDataDir, id);
-    if (alsoUninstall && entry) {
-      logger.info(
-        'registry',
-        `Removing app; package uninstall requested for ${entry.pkg} (manual cleanup may be required).`,
-        id,
-      );
-      // Best-effort: leave the managed library intact to avoid breaking shared deps.
+    if (alsoUninstall && entry?.pkg) {
+      // Actually remove the package from the managed library (its own top-level
+      // dir + any 00LOCK). Shared dependencies are left in place so deleting one
+      // app cannot break another. Best-effort: a live lock is reported, not fatal.
+      const r = removeInstalledPackage(this.runtime.libraryPath, entry.pkg);
+      if (r.removed.length) {
+        logger.info('registry', `Uninstalled ${entry.pkg} from the managed library.`, id);
+      }
+      if (r.failed.length) {
+        logger.warn(
+          'registry',
+          `Could not fully remove ${entry.pkg} (close any running R sessions and retry): ${r.failed.join(', ')}.`,
+          id,
+        );
+      }
     }
     if (this.selectedId === id) this.selectedId = null;
     this.broadcastStatus();
@@ -184,6 +209,11 @@ export class AppContext {
     const entry = this.registry.get(id);
     if (!entry) return { ok: false, id, message: 'Unknown app.' };
     this.errors.delete(id);
+    // A reinstall must overwrite files the running app may have loaded. On
+    // Windows a loaded compiled package locks its `.dll`, which blocks pak's
+    // move-into-place ("Failed to move installed package"). Stop any running
+    // instance first so the managed library can be replaced cleanly.
+    if (this.supervisor.isRunning(id)) this.supervisor.stop(id);
     const family = appFamily(entry.source);
 
     // A hosted URL has nothing to install — it is ready as soon as it is added.
@@ -191,6 +221,21 @@ export class AppContext {
       this.registry.patch(id, { installed: true });
       this.broadcastStatus();
       return { ok: true, id };
+    }
+
+    // Clear wreckage that would block pak's move-into-place: stale `00LOCK*`
+    // dirs and any corrupt (DESCRIPTION-less) leftover of this package. The
+    // running instance was already stopped above, so its DLL lock is released.
+    const cleaned = cleanForReinstall(this.runtime.ensureLibrary(), entry.pkg ?? '');
+    if (cleaned.removed.length) {
+      logger.info('installer', `Cleared stale library artifacts: ${cleaned.removed.join(', ')}.`, id);
+    }
+    if (cleaned.failed.length) {
+      logger.warn(
+        'installer',
+        `Could not clear (still locked — close any running R sessions): ${cleaned.failed.join(', ')}.`,
+        id,
+      );
     }
 
     this.installing.add(id);

@@ -3,7 +3,9 @@ import {
   buildLaunchScript,
   buildRunAppScript,
   defaultKillTree,
+  ShinySupervisor,
 } from '../src/main/shiny-supervisor';
+import { PidLedger } from '../src/main/pid-ledger';
 
 describe('buildLaunchScript', () => {
   it('builds a headless, fixed-port, fully-qualified launch expression', () => {
@@ -62,5 +64,43 @@ describe('defaultKillTree', () => {
     defaultKillTree(4321, 'darwin', { killFn });
     expect(killFn).toHaveBeenCalledWith(-4321, 'SIGTERM');
     expect(killFn).toHaveBeenCalledWith(4321, 'SIGTERM');
+  });
+});
+
+describe('ShinySupervisor.reapOrphans', () => {
+  function memLedger(initial: number[]): PidLedger {
+    let content = JSON.stringify(initial);
+    return new PidLedger('/x', {
+      existsSync: () => true,
+      readFileSync: () => content,
+      writeFileSync: (_p, d) => {
+        content = d;
+      },
+    });
+  }
+
+  it('kills ledger PIDs that are still our R processes, then clears the ledger', () => {
+    const ledger = memLedger([111, 222]);
+    const killTree = vi.fn();
+    const sup = new ShinySupervisor({ ledger, killTree, isOrphan: () => true });
+    expect(sup.reapOrphans()).toBe(2);
+    expect(killTree).toHaveBeenCalledWith(111);
+    expect(killTree).toHaveBeenCalledWith(222);
+    expect(ledger.list()).toEqual([]);
+  });
+
+  it('skips PIDs that are no longer our process (guards against PID reuse)', () => {
+    const ledger = memLedger([111, 999]);
+    const killTree = vi.fn();
+    // 999 was recycled by some unrelated program — must not be killed.
+    const sup = new ShinySupervisor({ ledger, killTree, isOrphan: (pid) => pid === 111 });
+    expect(sup.reapOrphans()).toBe(1);
+    expect(killTree).toHaveBeenCalledWith(111);
+    expect(killTree).not.toHaveBeenCalledWith(999);
+    expect(ledger.list()).toEqual([]);
+  });
+
+  it('is a no-op with no ledger configured', () => {
+    expect(new ShinySupervisor().reapOrphans()).toBe(0);
   });
 });

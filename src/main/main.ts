@@ -85,6 +85,9 @@ function bootstrap(): void {
   logger.info('main', `shinylaunchR ${app.getVersion()} starting (userData: ${userData}).`);
 
   context = new AppContext(userData);
+  // Reap any R processes a previous crashed/force-killed session left behind
+  // before the user can trigger an install that those orphans would block.
+  context.reapOrphanProcesses();
   mainWindow = createMainWindow();
   context.setMainWindow(mainWindow);
 

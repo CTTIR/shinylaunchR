@@ -66,6 +66,21 @@ describe('install script builders', () => {
     expect(s).toContain('dependencies = TRUE');
     expect(s).toContain('upgrade = "never"');
   });
+
+  it('runs installs under a one-shot lock-cleanup retry (Windows move/AV resilience)', () => {
+    // pak path: the actual install call still runs, now wrapped by the retry
+    const pak = buildGithubScript('cttir/zhncommandR', 'zhncommandR', '/lib', 'https://x', true);
+    expect(pak).toContain('.slr_install(function() pak::pkg_install("cttir/zhncommandR"');
+    expect(pak).toContain('00LOCK');
+    expect(pak).toContain('Sys.sleep');
+    // CRAN install.packages and remotes fallbacks are wrapped too
+    expect(buildCranScript('molpathR', '/lib', 'https://x')).toContain(
+      '.slr_install(function() utils::install.packages("molpathR"',
+    );
+    expect(buildGithubScript('cttir/zhncommandR', 'zhncommandR', '/lib', 'https://x', false)).toContain(
+      '.slr_install(function() remotes::install_github("cttir/zhncommandR"',
+    );
+  });
 });
 
 describe('buildSourceInstallScript', () => {
