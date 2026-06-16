@@ -26,7 +26,7 @@ import { Registry } from './registry';
 import { RRuntimeManager } from './r-runtime';
 import { ShinySupervisor } from './shiny-supervisor';
 import { IconManager } from './icons';
-import { installPackage } from './installer';
+import { installPackage, verifyPackageLoads } from './installer';
 import { getSettings, initSettings, setSettings } from './settings';
 import * as credentials from './credentials';
 import { resourcePath } from './resources';
@@ -203,6 +203,18 @@ export class AppContext {
     if (!entry) return { ok: false, id, message: 'Unknown app.' };
     if (!entry.installed) {
       return { ok: false, id, message: 'App is not installed yet.' };
+    }
+    // Pre-launch probe: if the package's namespace won't load (e.g. a missing
+    // dependency), surface a clear error instead of spawning R into a halt.
+    const loads = await verifyPackageLoads(entry.pkg, { runtime: this.runtime });
+    if (!loads) {
+      const message =
+        `App "${entry.pkg}" can't load — a dependency may be missing. ` +
+        `Try Reinstall / Update to install its full dependency tree.`;
+      this.errors.set(id, message);
+      logger.error('shiny', message, id);
+      this.broadcastStatus();
+      return { ok: false, id, message };
     }
     const result = await this.supervisor.launch(entry, this.runtime, getSettings());
     if (!result.ok) {

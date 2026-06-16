@@ -27,13 +27,37 @@ describe('safeRepos', () => {
 describe('install script builders', () => {
   it('rejects invalid package and repo names', () => {
     expect(() => buildCranScript('bad;name', '/lib', 'https://x')).toThrow();
-    expect(() => buildGithubScript('not-a-repo', '/lib', 'https://x', true)).toThrow();
+    expect(() => buildGithubScript('not-a-repo', 'pkg', '/lib', 'https://x', true)).toThrow();
+    expect(() => buildGithubScript('org/repo', 'bad;name', '/lib', 'https://x', true)).toThrow();
   });
 
-  it('produces a fully-qualified, quoted install call', () => {
+  it('CRAN fallback installs the full dependency tree and gates on load', () => {
     const s = buildCranScript('molpathR', '/lib', 'https://cloud.r-project.org');
     expect(s).toContain('install.packages("molpathR"');
+    expect(s).toContain('dependencies = TRUE');
+    expect(s).toContain('requireNamespace("molpathR"');
     expect(s).toContain('INSTALL_OK');
+  });
+
+  it('CRAN with pak preferred resolves the tree via pak', () => {
+    const s = buildCranScript('molpathR', '/lib', 'https://cloud.r-project.org', true);
+    expect(s).toContain('pak::pkg_install("molpathR"');
+    expect(s).toContain('dependencies = TRUE');
+  });
+
+  it('GitHub via pak installs the tree into the managed lib', () => {
+    const s = buildGithubScript('cttir/zhncommandR', 'zhncommandR', '/lib', 'https://x', true);
+    expect(s).toContain('pak::pkg_install("cttir/zhncommandR"');
+    expect(s).toContain('lib = lib');
+    expect(s).toContain('dependencies = TRUE');
+    expect(s).toContain('requireNamespace("zhncommandR"');
+  });
+
+  it('GitHub remotes fallback pulls Suggests and never upgrades', () => {
+    const s = buildGithubScript('cttir/zhncommandR', 'zhncommandR', '/lib', 'https://x', false);
+    expect(s).toContain('remotes::install_github("cttir/zhncommandR"');
+    expect(s).toContain('dependencies = TRUE');
+    expect(s).toContain('upgrade = "never"');
   });
 });
 
