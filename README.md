@@ -32,17 +32,31 @@ into a shell command.
 
 ---
 
-## Install (end users)
+## Download & Install (end users)
 
-Download the artifact for your OS from the Releases page:
+Grab the build for your OS from the repo's **[Releases](https://github.com/cttir/shinylaunchR/releases)**
+page.
 
-- **Windows** — `shinylaunchR-Setup-x.y.z.exe` (NSIS installer) or the portable
-  `.exe`.
-- **macOS** — `shinylaunchR-x.y.z.dmg` (unsigned; see *Known limitations*).
-- **Linux** — `shinylaunchR-x.y.z.AppImage` or the `.deb`.
+- **Windows** — download `shinylaunchR-Setup-<ver>.exe` (NSIS installer) and run
+  it, or use the portable `.exe`. On first launch Windows SmartScreen may show
+  *“Windows protected your PC”* → click **More info → Run anyway**.
+- **macOS** — download `shinylaunchR-<ver>.dmg` and drag the app to Applications.
+  On first launch: **right-click the app → Open → Open** (or System Settings →
+  Privacy & Security → **Open Anyway**). Alternatively, clear the quarantine
+  flag: `xattr -dr com.apple.quarantine /Applications/shinylaunchR.app`.
+- **Linux** — AppImage: `chmod +x shinylaunchR-<ver>.AppImage` then run it; or
+  `.deb`: `sudo apt install ./shinylaunchR-<ver>.deb`.
 
 You also need **R ≥ 4.2**. shinylaunchR can use an R already on your system, or
 (where configured) bootstrap a managed copy. See *R runtime* below.
+
+### Why the security warning?
+
+The app is safe but **unsigned** — code-signing certificates cost money and are
+optional. The first-launch warning comes from your operating system (Gatekeeper
+on macOS, SmartScreen on Windows), not from the app, and **no developer-side
+build flag can disable it** — it is the OS protecting you. Signing/notarization
+can be enabled later (see *Releasing*) to remove the prompt.
 
 ---
 
@@ -169,6 +183,49 @@ npm run dist:win   # / dist:mac / dist:linux
 
 Icons under `resources/` are generated placeholders (`node scripts/gen-icons.mjs`);
 replace them with branded assets before release.
+
+---
+
+## Releasing (maintainer)
+
+Installers are built by CI — `electron-builder` cannot cross-compile all three
+OSes from one machine (a macOS `.dmg` can only be built on macOS, etc.), so a
+GitHub Actions matrix (`macos-latest` / `windows-latest` / `ubuntu-latest`)
+produces them in parallel.
+
+To cut a release:
+
+```bash
+# bump "version" in package.json and update CHANGELOG.md, then:
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The [`release` workflow](.github/workflows/release.yml) runs the quality gate
+(`typecheck` / `lint` / `test`) on each OS, builds, and publishes the installers
+to the GitHub Release for that tag:
+
+- **Windows** — `shinylaunchR-Setup-<ver>.exe` (NSIS) + portable `.exe`
+- **macOS** — `.dmg` (x64 + arm64) + `.zip`
+- **Linux** — `.AppImage` + `.deb`
+
+### Signing (optional — ships unsigned by default)
+
+Builds are **unsigned** unless you add the signing secrets to the GitHub repo.
+The same workflow then signs/notarizes automatically — no edits needed.
+
+| Secret | Enables |
+|--------|---------|
+| `MAC_CSC_LINK` | base64 of your Apple Developer ID Application `.p12` |
+| `MAC_CSC_KEY_PASSWORD` | the `.p12` password |
+| `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | macOS notarization |
+| `WIN_CSC_LINK` | base64 of your Windows code-signing `.pfx` |
+| `WIN_CSC_KEY_PASSWORD` | the `.pfx` password |
+
+macOS signing needs an Apple Developer ID ($99/yr) **plus** notarization;
+Windows needs a code-signing certificate (EV clears SmartScreen immediately, OV
+builds reputation over time). Never commit certificate material — it lives only
+in repo secrets.
 
 ---
 
