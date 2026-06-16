@@ -1,0 +1,34 @@
+{
+  "defaultVersion": "4.4.2",
+  "_note": "Download URLs are intentionally centralised here so they can be updated without touching code. A blank/placeholder url means the managed bootstrap is unavailable for that platform/version and the app falls back to a system R. Fill sha256 to enable checksum verification.",
+  "platforms": {
+    "win32-x64": {
+      "4.4.2": {
+        "url": "https://cran.r-project.org/bin/windows/base/R-4.4.2-win.exe",
+        "sha256": "",
+        "kind": "exe"
+      }
+    },
+    "darwin-x64": {
+      "4.4.2": {
+        "url": "https://cran.r-project.org/bin/macosx/big-sur-x86_64/base/R-4.4.2-x86_64.pkg",
+        "sha256": "",
+        "kind": "pkg"
+      }
+    },
+    "darwin-arm64": {
+      "4.4.2": {
+        "url": "https://cran.r-project.org/bin/macosx/big-sur-arm64/base/R-4.4.2-arm64.pkg",
+        "sha256": "",
+        "kind": "pkg"
+      }
+    },
+    "linux-x64": {
+      "4.4.2": {
+        "url": "",
+        "sha256": "",
+        "kind": "tar.gz"
+      }
+    }
+  }
+}

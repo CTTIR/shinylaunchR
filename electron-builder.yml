@@ -1,0 +1,47 @@
+appId: io.github.cttir.shinylaunchr
+productName: shinylaunchR
+copyright: Copyright © 2026 Raban Heller
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**/*
+  - package.json
+extraMetadata:
+  main: out/main/main.js
+asarUnpack:
+  - "**/node_modules/keytar/**"
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+mac:
+  icon: resources/icon.icns
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  # Code signing & notarization: see README "Known limitations".
+  # Produces an unsigned .dmg. Set CSC_LINK / CSC_KEY_PASSWORD to sign.
+linux:
+  icon: resources/icon.png
+  category: Development
+  maintainer: Raban Heller <raban.heller@outlook.com>
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
