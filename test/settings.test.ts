@@ -64,6 +64,6 @@ describe('settings', () => {
     const s = initSettings(dir);
     expect(s.theme).toBe('system'); // wrong type → default
     expect(s.preferPak).toBe(false); // valid override kept
-    expect((s as Record<string, unknown>).bogus).toBeUndefined();
+    expect((s as unknown as Record<string, unknown>).bogus).toBeUndefined();
   });
 });

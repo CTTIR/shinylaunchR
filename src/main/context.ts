@@ -215,9 +215,28 @@ export class AppContext {
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
+        nodeIntegrationInSubFrames: false,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
       },
     });
     win.setMenuBarVisibility(false);
+
+    // The window may only ever show this app's own supervised loopback server.
+    // Block navigation elsewhere; route external links to the system browser.
+    const origin = `http://127.0.0.1:${this.supervisor.getRunning(entry.id)?.port ?? ''}`;
+    win.webContents.on('will-navigate', (event, target) => {
+      if (!target.startsWith(origin)) {
+        event.preventDefault();
+        if (/^https:\/\//i.test(target)) void shell.openExternal(target);
+      }
+    });
+    win.webContents.setWindowOpenHandler(({ url: target }) => {
+      if (/^https:\/\//i.test(target)) void shell.openExternal(target);
+      return { action: 'deny' };
+    });
+
     void win.loadURL(url);
     this.supervisor.attachWindow(entry.id, win);
     win.on('closed', () => {
@@ -389,7 +408,8 @@ export class AppContext {
   }
 
   async openExternal(url: string): Promise<OkResult> {
-    if (!/^https?:\/\//i.test(url)) return { ok: false, message: 'Invalid URL' };
+    // Only https — never file:/javascript:/http: from a renderer-supplied string.
+    if (!/^https:\/\//i.test(url)) return { ok: false, message: 'Only https URLs are allowed' };
     await shell.openExternal(url);
     return { ok: true };
   }

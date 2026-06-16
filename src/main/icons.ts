@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, type SpawnOptions } from 'node:child_process';
-import { isValidName, type AppEntry } from '@shared/types';
+import { isValidPkg, type AppEntry } from '@shared/types';
 import { logger } from './logger';
 import type { RRuntimeManager } from './r-runtime';
 
@@ -52,7 +52,7 @@ export class IconManager {
    * Returns the cached path, or undefined if none found / R unavailable.
    */
   async resolvePackageIcon(entry: AppEntry, runtime: RRuntimeManager): Promise<string | undefined> {
-    if (!isValidName(entry.pkg)) return undefined;
+    if (!isValidPkg(entry.pkg)) return undefined;
     const resolved = runtime.resolveRscript();
     if (!resolved) return undefined;
 

@@ -26,6 +26,16 @@ type Keytar = {
 let keytar: Keytar | null | undefined;
 let sessionToken: string | null = null; // fallback when keytar is unavailable
 
+/**
+ * Inject a keytar backend (or null to force the session-only fallback). Used by
+ * tests so they never touch the real OS keychain; pass `undefined` to reset to
+ * lazy auto-detection.
+ */
+export function __setKeytarForTests(kt: Keytar | null | undefined): void {
+  keytar = kt;
+  sessionToken = null;
+}
+
 function loadKeytar(): Keytar | null {
   if (keytar !== undefined) return keytar;
   try {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   isValidName,
+  isValidPkg,
   isValidRepo,
   type AppEntry,
   type AppEntryInput,
@@ -33,14 +34,14 @@ export function RegisterDialog({ editing, onClose, onSubmit }: RegisterDialogPro
   useEffect(() => {
     if (kind === 'github' && !pkgTouched) {
       const m = repo.match(/^[^/]+\/([^@]+)/);
-      if (m?.[1]) setPkg(m[1].replace(/[^A-Za-z0-9._]/g, ''));
+      if (m?.[1]) setPkg(m[1].replace(/[^A-Za-z0-9.]/g, ''));
     }
   }, [repo, kind, pkgTouched]);
 
   const errors = useMemo(() => {
     const e: Record<string, string> = {};
     if (!name.trim()) e.name = 'Display name is required.';
-    if (!isValidName(pkg)) e.pkg = 'Must match ^[A-Za-z.][A-Za-z0-9._]*$';
+    if (!isValidPkg(pkg)) e.pkg = 'Letters, digits and dots only (R package name).';
     if (!isValidName(fun)) e.fun = 'Must match ^[A-Za-z.][A-Za-z0-9._]*$';
     if (kind === 'github' && !isValidRepo(repo)) e.repo = 'Use org/repo or org/repo@ref';
     if (portMode === 'fixed') {

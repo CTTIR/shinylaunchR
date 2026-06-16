@@ -4,7 +4,7 @@
  * processes are killed before quit.
  */
 import path from 'node:path';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
 import { logger } from './logger';
 import { AppContext } from './context';
 import { registerIpc } from './ipc';
@@ -27,11 +27,16 @@ function createMainWindow(): BrowserWindow {
       preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      nodeIntegrationInWorker: false,
+      nodeIntegrationInSubFrames: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     },
   });
 
   win.once('ready-to-show', () => win.show());
+  hardenNavigation(win, () => process.env.ELECTRON_RENDERER_URL);
 
   const devUrl = process.env.ELECTRON_RENDERER_URL;
   if (devUrl) {
@@ -41,6 +46,31 @@ function createMainWindow(): BrowserWindow {
   }
 
   return win;
+}
+
+/**
+ * Lock a window down: block in-page navigation to anything but its own origin,
+ * and route any window.open / external link to the system browser (https only).
+ * Prevents a compromised renderer or stray link from navigating the app shell.
+ */
+function hardenNavigation(win: BrowserWindow, devUrl: () => string | undefined): void {
+  const isInternal = (url: string): boolean => {
+    const dev = devUrl();
+    if (dev && url.startsWith(dev)) return true;
+    return url.startsWith('file://');
+  };
+
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!isInternal(url)) {
+      event.preventDefault();
+      if (/^https:\/\//i.test(url)) void shell.openExternal(url);
+    }
+  });
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//i.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
 }
 
 function bootstrap(): void {

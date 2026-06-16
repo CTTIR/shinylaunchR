@@ -10,6 +10,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   isValidName,
+  isValidPkg,
   isValidRepo,
   type AppEntry,
   type AppEntryInput,
@@ -41,7 +42,7 @@ export function validateInput(input: AppEntryInput): AppEntryInput {
   if (!input || typeof input !== 'object') throw new RegistryError('input required');
   const name = String(input.name ?? '').trim();
   if (!name) throw new RegistryError('name is required');
-  if (!isValidName(String(input.pkg ?? ''))) {
+  if (!isValidPkg(String(input.pkg ?? ''))) {
     throw new RegistryError(`invalid package name: ${String(input.pkg)}`);
   }
   if (!isValidName(String(input.fun ?? ''))) {
@@ -71,7 +72,7 @@ function isAppEntry(value: unknown): value is AppEntry {
   if (!value || typeof value !== 'object') return false;
   const e = value as Record<string, unknown>;
   if (typeof e.id !== 'string' || typeof e.name !== 'string') return false;
-  if (typeof e.pkg !== 'string' || !isValidName(e.pkg)) return false;
+  if (typeof e.pkg !== 'string' || !isValidPkg(e.pkg)) return false;
   if (typeof e.fun !== 'string' || !isValidName(e.fun)) return false;
   try {
     validateSource(e.source);

@@ -7,6 +7,7 @@ import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import type { BrowserWindow } from 'electron';
 import {
   isValidName,
+  isValidPkg,
   type AppEntry,
   type AppSettings,
   type AppStatus,
@@ -27,7 +28,7 @@ interface RunningApp {
 
 /** Build the R expression that starts the Shiny app headless on a fixed port. */
 export function buildLaunchScript(pkg: string, fun: string, port: number): string {
-  if (!isValidName(pkg)) throw new Error(`invalid package: ${pkg}`);
+  if (!isValidPkg(pkg)) throw new Error(`invalid package: ${pkg}`);
   if (!isValidName(fun)) throw new Error(`invalid function: ${fun}`);
   return [
     `options(shiny.port = ${port}, shiny.host = "127.0.0.1", shiny.launch.browser = FALSE)`,
