@@ -84,7 +84,10 @@ function bootstrap(): void {
   context.setMainWindow(mainWindow);
 
   registerIpc(context);
-  installMenu(context, () => mainWindow);
+  const ctx = context;
+  const rebuildMenu = () => installMenu(ctx, () => mainWindow);
+  rebuildMenu();
+  context.setMenuRebuilder(rebuildMenu);
 
   mainWindow.on('closed', () => {
     mainWindow = null;

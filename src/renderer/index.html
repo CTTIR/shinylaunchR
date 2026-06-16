@@ -4,16 +4,13 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:; font-src 'self' data:; script-src 'self';"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:; font-src 'self' data:; script-src 'self' 'sha256-Gh5zbT7pOS/Od4UhWJES6260rXwrrfWSh4X98qYCDxs=';"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>shinylaunchR</title>
-    <style>
-      /* Pre-paint theme guard to avoid a flash before React mounts. */
-      html {
-        background: #1a1a1d;
-      }
-    </style>
+    <!-- Pre-paint theme guard: apply the persisted/system theme before first
+         paint so dark↔light never flashes. Hash is allow-listed in the CSP. -->
+    <script>(function(){try{var p=localStorage.getItem("slr-theme")||"system";var d=p==="dark"||(p==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.setAttribute("data-theme",d?"dark":"light");}catch(e){}})();</script>
   </head>
   <body>
     <div id="root"></div>

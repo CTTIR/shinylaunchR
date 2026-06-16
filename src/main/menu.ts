@@ -26,6 +26,14 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
 
   const selected = () => ctx.getSelected();
 
+  // Enabled-state inputs — the menu is rebuilt whenever selection/status change.
+  const selId = ctx.getSelected();
+  const selEntry = selId ? ctx.registry.get(selId) : undefined;
+  const selRunning = selId ? ctx.supervisor.isRunning(selId) : false;
+  const hasSelection = Boolean(selEntry);
+  const canLaunch = Boolean(selEntry?.installed) && !selRunning;
+  const anyRunning = ctx.anyRunning();
+
   const template: MenuItemConstructorOptions[] = [];
 
   if (isMac) {
@@ -62,12 +70,16 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
     submenu: [
       {
         label: 'Edit App…',
-        enabled: true,
+        enabled: hasSelection,
         accelerator: 'CmdOrCtrl+E',
         click: () => dispatch('edit-selected'),
       },
-      { label: 'Reinstall / Update App', click: () => dispatch('reinstall-selected') },
-      { label: 'Remove App…', click: () => dispatch('remove-selected') },
+      {
+        label: 'Reinstall / Update App',
+        enabled: hasSelection,
+        click: () => dispatch('reinstall-selected'),
+      },
+      { label: 'Remove App…', enabled: hasSelection, click: () => dispatch('remove-selected') },
       { type: 'separator' },
       { role: 'cut' },
       { role: 'copy' },
@@ -82,6 +94,7 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
       {
         label: 'Launch selected',
         accelerator: 'CmdOrCtrl+L',
+        enabled: canLaunch,
         click: () => {
           const id = selected();
           if (id) void ctx.launch(id);
@@ -89,12 +102,13 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
       },
       {
         label: 'Stop selected',
+        enabled: selRunning,
         click: () => {
           const id = selected();
           if (id) ctx.stop(id);
         },
       },
-      { label: 'Stop all running', click: () => ctx.stopAll() },
+      { label: 'Stop all running', enabled: anyRunning, click: () => ctx.stopAll() },
     ],
   });
 

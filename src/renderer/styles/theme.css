@@ -242,26 +242,34 @@ a:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Status is conveyed by SHAPE as well as colour (a11y: never colour-alone). */
 .tile .status-dot {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 9px;
-  height: 9px;
+  top: 9px;
+  right: 9px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
-  background: var(--status-grey);
+  border: 1.5px solid var(--status-grey);
+  background: transparent; /* not-installed = hollow ring */
 }
 .tile .status-dot.installing {
+  border-color: var(--status-blue);
   background: var(--status-blue);
   animation: pulse 1.2s infinite;
 }
 .tile .status-dot.ready {
+  border-color: var(--status-green);
   background: var(--status-green);
 }
 .tile .status-dot.running {
+  border-color: var(--status-purple);
   background: var(--status-purple);
+  box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 3.5px var(--status-purple); /* double ring */
 }
 .tile .status-dot.error {
+  border-radius: 2px; /* square = error, distinct without colour */
+  border-color: var(--status-red);
   background: var(--status-red);
 }
 @keyframes pulse {
@@ -541,4 +549,29 @@ table.shortcuts td.key {
 }
 .context-menu button.danger:hover {
   color: var(--status-red);
+}
+
+/* Visually-hidden text for screen readers (status labels, etc.). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

@@ -46,10 +46,14 @@ export function AppTile({ app, status, selected, onSelect, onLaunch, onContextMe
       onDoubleClick={() => onLaunch(app.id)}
       onContextMenu={(e) => onContextMenu(e, app)}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') onLaunch(app.id);
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onLaunch(app.id);
+        }
       }}
+      aria-label={`${app.name}, ${STATE_TITLE[state]}`}
     >
-      <span className={`status-dot ${state}`} />
+      <span className={`status-dot ${state}`} role="img" aria-label={STATE_TITLE[state]} />
       {app.iconPath ? (
         <img
           className="tile-icon"

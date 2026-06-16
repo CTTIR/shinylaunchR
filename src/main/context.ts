@@ -41,6 +41,7 @@ export class AppContext {
   private selectedId: string | null = null;
   private installing = new Set<string>();
   private errors = new Map<string, string>();
+  private menuRebuilder: (() => void) | null = null;
 
   constructor(private readonly userDataDir: string) {
     initSettings(userDataDir);
@@ -67,10 +68,21 @@ export class AppContext {
 
   setSelected(id: string | null): void {
     this.selectedId = id;
+    this.menuRebuilder?.();
   }
 
   getSelected(): string | null {
     return this.selectedId;
+  }
+
+  /** Register a callback that rebuilds the native menu (enabled-state refresh). */
+  setMenuRebuilder(fn: () => void): void {
+    this.menuRebuilder = fn;
+  }
+
+  /** True if any app currently has a running R/Shiny process. */
+  anyRunning(): boolean {
+    return this.supervisor.statuses().length > 0;
   }
 
   private send(channel: string, payload: unknown): void {
@@ -81,6 +93,7 @@ export class AppContext {
 
   broadcastStatus(): void {
     this.send(IPC.evtStatus, this.statuses());
+    this.menuRebuilder?.();
   }
 
   applyTheme(theme: AppSettings['theme']): void {

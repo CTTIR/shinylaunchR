@@ -7,6 +7,7 @@ import {
   type AppEntryInput,
 } from '@shared/types';
 import { api } from '../lib/api';
+import { useFocusTrap } from '../lib/useFocusTrap';
 
 export interface RegisterDialogProps {
   editing?: AppEntry;
@@ -29,6 +30,7 @@ export function RegisterDialog({ editing, onClose, onSubmit }: RegisterDialogPro
   const [port, setPort] = useState<string>(editing?.fixedPort ? String(editing.fixedPort) : '');
   const [frameless, setFrameless] = useState<boolean>(editing?.frameless ?? false);
   const [pkgTouched, setPkgTouched] = useState(Boolean(editing));
+  const trapRef = useFocusTrap<HTMLDivElement>();
 
   // Auto-suggest package name from "org/repo" until the user edits it.
   useEffect(() => {
@@ -78,9 +80,20 @@ export function RegisterDialog({ editing, onClose, onSubmit }: RegisterDialogPro
         className="modal"
         role="dialog"
         aria-modal="true"
+        aria-label={editing ? 'Edit app' : 'Add a Shiny app'}
+        ref={trapRef}
         onKeyDown={(e) => {
           if (e.key === 'Escape') onClose();
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit();
+          // Enter submits from any input field (not from buttons/selects).
+          if (
+            e.key === 'Enter' &&
+            (e.target as HTMLElement).tagName === 'INPUT' &&
+            (e.target as HTMLInputElement).type !== 'radio' &&
+            (e.target as HTMLInputElement).type !== 'checkbox'
+          ) {
+            e.preventDefault();
+            submit();
+          }
         }}
       >
         <h2>{editing ? 'Edit app' : 'Add a Shiny app'}</h2>

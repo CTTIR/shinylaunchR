@@ -37,9 +37,22 @@ export function AppGrid(props: AppGridProps) {
           onContextMenu={props.onContextMenu}
         />
       ))}
-      <div className="tile add-tile" role="button" tabIndex={0} onClick={props.onAdd}
-        onKeyDown={(e) => e.key === 'Enter' && props.onAdd()}>
-        <span className="plus">+</span>
+      <div
+        className="tile add-tile"
+        role="button"
+        tabIndex={0}
+        aria-label="Add app"
+        onClick={props.onAdd}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            props.onAdd();
+          }
+        }}
+      >
+        <span className="plus" aria-hidden="true">
+          +
+        </span>
         <div className="tile-name">Add app</div>
       </div>
     </div>
