@@ -29,6 +29,9 @@ export const PKG_REGEX = /^[A-Za-z][A-Za-z0-9.]*$/;
 /** A GitHub "org/repo" or "org/repo@ref" spec. */
 export const REPO_REGEX = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(@[A-Za-z0-9_./-]+)?$/;
 
+/** A GitHub gist id (hex/alphanumeric). */
+export const GIST_REGEX = /^[A-Za-z0-9]+$/;
+
 export function isValidName(value: string): boolean {
   return NAME_REGEX.test(value);
 }
@@ -41,22 +44,77 @@ export function isValidRepo(value: string): boolean {
   return REPO_REGEX.test(value);
 }
 
+export function isValidGist(value: string): boolean {
+  return GIST_REGEX.test(value);
+}
+
+/** True only for a syntactically valid https:// URL (no http/file/etc.). */
+export function isValidHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A safe, traversal-free *relative* path inside a staged app dir (subdir/appDir).
+ * Rejects absolute paths, drive letters, empty/`.`/`..` segments, and any
+ * character outside a conservative allow-list. Forward slashes only.
+ */
+export function isSafeRelPath(value: string): boolean {
+  if (!value || value.length > 256) return false;
+  const norm = value.replace(/\\/g, '/');
+  if (norm.startsWith('/') || /^[A-Za-z]:/.test(norm)) return false;
+  return norm
+    .split('/')
+    .every((seg) => seg !== '' && seg !== '.' && seg !== '..' && /^[A-Za-z0-9._-]+$/.test(seg));
+}
+
 // ---------------------------------------------------------------------------
 // Registry / app model
 // ---------------------------------------------------------------------------
 
+/** Where a SHINY FILE / `source` app's files come from. */
+export type SourceOrigin =
+  | { from: 'github'; repo: string; subdir?: string } // a *source* repo (not an R package)
+  | { from: 'zip'; url?: string; filePath?: string } // remote zip URL or locally-uploaded file
+  | { from: 'gist'; id: string }
+  | { from: 'local'; path: string }; // a local folder, copied (never run in-place)
+
 export type AppSource =
-  | { kind: 'cran' }
-  | { kind: 'github'; repo: string }; // "org/repo[@ref]"
+  | { kind: 'cran' } // PACKAGE
+  | { kind: 'github'; repo: string } // PACKAGE — "org/repo[@ref]"
+  | { kind: 'url'; url: string } // HOSTED URL
+  | { kind: 'source'; origin: SourceOrigin; appDir?: string }; // SHINY FILE
+
+/**
+ * The three app families, derived from `source.kind`. UI, icon and layout logic
+ * switch on family — never on raw `source.kind` scattered around the code.
+ */
+export type AppFamily = 'package' | 'shinyfile' | 'url';
+
+export function appFamily(source: AppSource): AppFamily {
+  switch (source.kind) {
+    case 'cran':
+    case 'github':
+      return 'package';
+    case 'url':
+      return 'url';
+    case 'source':
+      return 'shinyfile';
+  }
+}
 
 export interface AppEntry {
   id: string; // uuid
   name: string; // display name, user-editable
-  pkg: string; // R package name
-  fun: string; // launcher function, e.g. "mp_run_app"
+  pkg?: string; // R package name (PACKAGE family only)
+  fun?: string; // launcher function, e.g. "mp_run_app" (PACKAGE family only)
   source: AppSource;
   iconPath?: string; // cached resolved icon (png/svg)
-  installed: boolean; // is the pkg present in the managed library?
+  installed: boolean; // package present / source staged & deps ready / url (always)
+  stagedPath?: string; // server-managed: resolved app dir for the SHINY FILE family
   fixedPort?: number; // optional; default = auto
   frameless?: boolean; // launched window chrome preference
   createdAt: string;
@@ -66,8 +124,8 @@ export interface AppEntry {
 /** Input shape for creating / editing an app (no server-managed fields). */
 export interface AppEntryInput {
   name: string;
-  pkg: string;
-  fun: string;
+  pkg?: string;
+  fun?: string;
   source: AppSource;
   iconPath?: string;
   fixedPort?: number;
@@ -228,6 +286,9 @@ export const IPC = {
   stopAll: 'app:stopAll',
   // icons
   pickIcon: 'icon:pick',
+  // file/folder pickers (SHINY FILE family)
+  pickZipFile: 'pick:zip',
+  pickFolder: 'pick:folder',
   // R runtime
   rStatus: 'r:status',
   rBootstrap: 'r:bootstrap',
@@ -303,6 +364,8 @@ export interface ShinyLaunchAPI {
   stopAll(): Promise<OkResult>;
 
   pickIcon(): Promise<string | undefined>;
+  pickZipFile(): Promise<string | undefined>;
+  pickFolder(): Promise<string | undefined>;
 
   rStatus(): Promise<RStatus>;
   rBootstrap(): Promise<RStatus>;

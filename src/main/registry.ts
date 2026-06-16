@@ -14,13 +14,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
+  appFamily,
+  isValidGist,
+  isValidHttpsUrl,
   isValidName,
   isValidPkg,
   isValidRepo,
+  isSafeRelPath,
   type AppEntry,
   type AppEntryInput,
   type AppSource,
   type RegistryFile,
+  type SourceOrigin,
 } from '@shared/types';
 
 export class RegistryError extends Error {}
@@ -29,17 +34,79 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/** A non-empty trimmed string, or throw. Used for trusted (picker-chosen) paths. */
+function requireNonEmpty(value: unknown, label: string): string {
+  const s = String(value ?? '').trim();
+  if (!s) throw new RegistryError(`${label} is required`);
+  return s;
+}
+
+function validateOrigin(origin: unknown): SourceOrigin {
+  if (!origin || typeof origin !== 'object') throw new RegistryError('source origin is required');
+  const o = origin as Record<string, unknown>;
+  switch (o.from) {
+    case 'github': {
+      if (typeof o.repo !== 'string' || !isValidRepo(o.repo)) {
+        throw new RegistryError(`invalid GitHub source repo: ${String(o.repo)}`);
+      }
+      if (o.subdir !== undefined && o.subdir !== null && !isSafeRelPath(String(o.subdir))) {
+        throw new RegistryError(`invalid subdir: ${String(o.subdir)}`);
+      }
+      const subdir = o.subdir ? String(o.subdir) : undefined;
+      return subdir ? { from: 'github', repo: o.repo, subdir } : { from: 'github', repo: o.repo };
+    }
+    case 'zip': {
+      const hasUrl = o.url !== undefined && o.url !== null && o.url !== '';
+      const hasFile = o.filePath !== undefined && o.filePath !== null && o.filePath !== '';
+      if (!hasUrl && !hasFile) throw new RegistryError('zip needs a url or filePath');
+      const url = hasUrl ? requireHttps(o.url) : undefined;
+      const filePath = hasFile ? requireNonEmpty(o.filePath, 'zip filePath') : undefined;
+      return url ? { from: 'zip', url } : { from: 'zip', filePath: filePath! };
+    }
+    case 'gist': {
+      if (typeof o.id !== 'string' || !isValidGist(o.id)) {
+        throw new RegistryError(`invalid gist id: ${String(o.id)}`);
+      }
+      return { from: 'gist', id: o.id };
+    }
+    case 'local': {
+      return { from: 'local', path: requireNonEmpty(o.path, 'local path') };
+    }
+    default:
+      throw new RegistryError(`invalid source origin: ${String(o.from)}`);
+  }
+}
+
+function requireHttps(value: unknown): string {
+  const s = String(value ?? '');
+  if (!isValidHttpsUrl(s)) throw new RegistryError(`must be an https URL: ${s}`);
+  return s;
+}
+
 function validateSource(source: unknown): AppSource {
   if (!source || typeof source !== 'object') throw new RegistryError('source is required');
   const s = source as Record<string, unknown>;
-  if (s.kind === 'cran') return { kind: 'cran' };
-  if (s.kind === 'github') {
-    if (typeof s.repo !== 'string' || !isValidRepo(s.repo)) {
-      throw new RegistryError(`invalid GitHub repo: ${String(s.repo)}`);
+  switch (s.kind) {
+    case 'cran':
+      return { kind: 'cran' };
+    case 'github':
+      if (typeof s.repo !== 'string' || !isValidRepo(s.repo)) {
+        throw new RegistryError(`invalid GitHub repo: ${String(s.repo)}`);
+      }
+      return { kind: 'github', repo: s.repo };
+    case 'url':
+      return { kind: 'url', url: requireHttps(s.url) };
+    case 'source': {
+      const origin = validateOrigin(s.origin);
+      if (s.appDir !== undefined && s.appDir !== null && !isSafeRelPath(String(s.appDir))) {
+        throw new RegistryError(`invalid appDir: ${String(s.appDir)}`);
+      }
+      const appDir = s.appDir ? String(s.appDir) : undefined;
+      return appDir ? { kind: 'source', origin, appDir } : { kind: 'source', origin };
     }
-    return { kind: 'github', repo: s.repo };
+    default:
+      throw new RegistryError(`invalid source kind: ${String(s.kind)}`);
   }
-  throw new RegistryError(`invalid source kind: ${String(s.kind)}`);
 }
 
 /** Validate user-supplied input and normalise it. Throws RegistryError. */
@@ -47,13 +114,20 @@ export function validateInput(input: AppEntryInput): AppEntryInput {
   if (!input || typeof input !== 'object') throw new RegistryError('input required');
   const name = String(input.name ?? '').trim();
   if (!name) throw new RegistryError('name is required');
-  if (!isValidPkg(String(input.pkg ?? ''))) {
-    throw new RegistryError(`invalid package name: ${String(input.pkg)}`);
-  }
-  if (!isValidName(String(input.fun ?? ''))) {
-    throw new RegistryError(`invalid launcher function: ${String(input.fun)}`);
-  }
   const source = validateSource(input.source);
+  // pkg/fun are meaningful (and required) only for the PACKAGE family.
+  let pkg: string | undefined;
+  let fun: string | undefined;
+  if (appFamily(source) === 'package') {
+    if (!isValidPkg(String(input.pkg ?? ''))) {
+      throw new RegistryError(`invalid package name: ${String(input.pkg)}`);
+    }
+    if (!isValidName(String(input.fun ?? ''))) {
+      throw new RegistryError(`invalid launcher function: ${String(input.fun)}`);
+    }
+    pkg = input.pkg;
+    fun = input.fun;
+  }
   let fixedPort: number | undefined;
   if (input.fixedPort !== undefined && input.fixedPort !== null) {
     const p = Number(input.fixedPort);
@@ -64,8 +138,8 @@ export function validateInput(input: AppEntryInput): AppEntryInput {
   }
   return {
     name,
-    pkg: input.pkg,
-    fun: input.fun,
+    pkg,
+    fun,
     source,
     iconPath: input.iconPath ? String(input.iconPath) : undefined,
     fixedPort,
@@ -77,12 +151,17 @@ function isAppEntry(value: unknown): value is AppEntry {
   if (!value || typeof value !== 'object') return false;
   const e = value as Record<string, unknown>;
   if (typeof e.id !== 'string' || typeof e.name !== 'string') return false;
-  if (typeof e.pkg !== 'string' || !isValidPkg(e.pkg)) return false;
-  if (typeof e.fun !== 'string' || !isValidName(e.fun)) return false;
+  let source: AppSource;
   try {
-    validateSource(e.source);
+    source = validateSource(e.source);
   } catch {
     return false;
+  }
+  // pkg/fun are required only for the PACKAGE family; existing cran/github
+  // entries (which always carried pkg+fun) keep validating and map to PACKAGE.
+  if (appFamily(source) === 'package') {
+    if (typeof e.pkg !== 'string' || !isValidPkg(e.pkg)) return false;
+    if (typeof e.fun !== 'string' || !isValidName(e.fun)) return false;
   }
   return true;
 }

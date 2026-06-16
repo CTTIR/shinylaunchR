@@ -57,7 +57,7 @@ export class IconManager {
    * Returns the cached path, or undefined if none found / R unavailable.
    */
   async resolvePackageIcon(entry: AppEntry, runtime: RRuntimeManager): Promise<string | undefined> {
-    if (!isValidPkg(entry.pkg)) return undefined;
+    if (!entry.pkg || !isValidPkg(entry.pkg)) return undefined;
     const resolved = runtime.resolveRscript();
     if (!resolved) return undefined;
 
@@ -72,7 +72,7 @@ export class IconManager {
       `)`,
       `hit <- cands[nzchar(cands) & file.exists(cands)]`,
       `if (length(hit) > 0) cat(hit[1])`,
-    ].join(' ');
+    ].join('\n');
 
     const found = await new Promise<string | undefined>((resolve) => {
       let out = '';
@@ -92,6 +92,28 @@ export class IconManager {
 
     if (!found || !fs.existsSync(found)) return undefined;
     return this.copyUserIcon(found, entry.id);
+  }
+
+  /**
+   * Look for a logo bundled inside a staged SHINY FILE app directory (the common
+   * `www/` and pkgdown `man/figures/` conventions) and cache it. Returns the
+   * cached path, or undefined if none is present. Pure filesystem — no R needed.
+   */
+  resolveSourceIcon(appDir: string, id: string): string | undefined {
+    const candidates = [
+      path.join(appDir, 'www', 'logo.png'),
+      path.join(appDir, 'www', 'logo.svg'),
+      path.join(appDir, 'man', 'figures', 'logo.png'),
+      path.join(appDir, 'man', 'figures', 'logo.svg'),
+    ];
+    const hit = candidates.find((p) => {
+      try {
+        return fs.existsSync(p);
+      } catch {
+        return false;
+      }
+    });
+    return hit ? this.copyUserIcon(hit, id) : undefined;
   }
 
   /** Remove every cached icon file. */

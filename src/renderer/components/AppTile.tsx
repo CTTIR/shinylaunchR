@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { AppEntry, AppRunState, AppStatus } from '@shared/types';
+import { appFamily, type AppEntry, type AppRunState, type AppStatus } from '@shared/types';
+import { HexIcon } from './HexIcon';
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -40,6 +41,12 @@ export interface AppTileProps {
 export function AppTile({ app, status, selected, onSelect, onLaunch, onContextMenu }: AppTileProps) {
   const state = status?.state ?? (app.installed ? 'ready' : 'not-installed');
   const title = `${app.name} — ${STATE_TITLE[state]}${status?.message ? `: ${status.message}` : ''}`;
+  // A user/real logo always wins; otherwise a hex whose COLOR signals the family
+  // (colored = package, grey = Shiny file / hosted URL) and whose glyph hints the
+  // kind (globe for a hosted URL, monogram otherwise).
+  const family = appFamily(app.source);
+  const tone = family === 'package' ? 'package' : 'grey';
+  const variant = family === 'url' ? 'globe' : 'monogram';
 
   return (
     <div
@@ -67,7 +74,7 @@ export function AppTile({ app, status, selected, onSelect, onLaunch, onContextMe
           onError={(e) => (e.currentTarget.style.display = 'none')}
         />
       ) : (
-        <div className="monogram">{initials(app.name)}</div>
+        <HexIcon tone={tone} variant={variant} label={initials(app.name)} />
       )}
       <div className="tile-name">{app.name}</div>
     </div>

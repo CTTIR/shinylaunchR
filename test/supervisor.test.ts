@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildLaunchScript, defaultKillTree } from '../src/main/shiny-supervisor';
+import {
+  buildLaunchScript,
+  buildRunAppScript,
+  defaultKillTree,
+} from '../src/main/shiny-supervisor';
 
 describe('buildLaunchScript', () => {
   it('builds a headless, fixed-port, fully-qualified launch expression', () => {
@@ -14,6 +18,20 @@ describe('buildLaunchScript', () => {
     expect(() => buildLaunchScript('bad name', 'fun', 8000)).toThrow();
     expect(() => buildLaunchScript('pkg', 'fun()', 8000)).toThrow();
     expect(() => buildLaunchScript('pkg', 'system("x")', 8000)).toThrow();
+  });
+});
+
+describe('buildRunAppScript', () => {
+  it('runs a staged directory headless on a fixed port (forward slashes)', () => {
+    const s = buildRunAppScript('C:\\Users\\me\\AppData\\apps\\abc', 8200);
+    expect(s).toContain('shiny.port = 8200');
+    expect(s).toContain('shiny.launch.browser = FALSE');
+    expect(s).toContain('shiny::runApp("C:/Users/me/AppData/apps/abc")');
+  });
+
+  it('rejects a path that could break out of the R string literal', () => {
+    expect(() => buildRunAppScript('dir"); system("x', 8000)).toThrow();
+    expect(() => buildRunAppScript('', 8000)).toThrow();
   });
 });
 

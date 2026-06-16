@@ -61,6 +61,10 @@ export function registerIpc(ctx: AppContext): void {
   // icons
   handle(IPC.pickIcon, () => ctx.pickIcon());
 
+  // file/folder pickers
+  handle(IPC.pickZipFile, () => ctx.pickZipFile());
+  handle(IPC.pickFolder, () => ctx.pickFolder());
+
   // R runtime
   handle(IPC.rStatus, () => ctx.rStatus());
   handle(IPC.rBootstrap, () => ctx.rBootstrap());

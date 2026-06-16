@@ -13,6 +13,7 @@ import path from 'node:path';
 import { app, BrowserWindow, dialog, nativeTheme, shell } from 'electron';
 import {
   IPC,
+  appFamily,
   type AppEntry,
   type AppEntryInput,
   type AppInfo,
@@ -31,7 +32,8 @@ import { Registry } from './registry';
 import { RRuntimeManager } from './r-runtime';
 import { ShinySupervisor } from './shiny-supervisor';
 import { IconManager } from './icons';
-import { installPackage, verifyPackageLoads } from './installer';
+import { installPackage, installSourceDeps, verifyPackageLoads } from './installer';
+import { removeStaged, scanDependencies, stageSource } from './source-apps';
 import { getSettings, initSettings, setSettings } from './settings';
 import * as credentials from './credentials';
 import { resourcePath } from './resources';
@@ -156,6 +158,8 @@ export class AppContext {
     this.registry.remove(id);
     this.errors.delete(id);
     if (entry?.iconPath) this.deleteCachedIcon(entry.iconPath);
+    // Drop any staged source-app files (no effect for package/url families).
+    removeStaged(this.userDataDir, id);
     if (alsoUninstall && entry) {
       logger.info(
         'registry',
@@ -175,6 +179,15 @@ export class AppContext {
     const entry = this.registry.get(id);
     if (!entry) return { ok: false, id, message: 'Unknown app.' };
     this.errors.delete(id);
+    const family = appFamily(entry.source);
+
+    // A hosted URL has nothing to install — it is ready as soon as it is added.
+    if (family === 'url') {
+      this.registry.patch(id, { installed: true });
+      this.broadcastStatus();
+      return { ok: true, id };
+    }
+
     this.installing.add(id);
     this.broadcastStatus();
     let token: string | null = null;
@@ -183,6 +196,14 @@ export class AppContext {
     } catch {
       token = null;
     }
+
+    if (family === 'shinyfile') {
+      const result = await this.installSource(entry, token);
+      this.installing.delete(id);
+      this.broadcastStatus();
+      return result;
+    }
+
     const result = await installPackage(entry, {
       runtime: this.runtime,
       settings: getSettings(),
@@ -203,24 +224,85 @@ export class AppContext {
     return result;
   }
 
+  /** Stage a source app, scan its dependencies, install them, resolve its icon. */
+  private async installSource(entry: AppEntry, token: string | null): Promise<InstallResult> {
+    const staged = await stageSource(entry, { userDataDir: this.userDataDir, token });
+    if (!staged.ok || !staged.appDir) {
+      const message = staged.message ?? 'Staging failed.';
+      this.errors.set(entry.id, message);
+      return { ok: false, id: entry.id, message };
+    }
+    this.registry.patch(entry.id, { stagedPath: staged.appDir });
+    const pkgs = scanDependencies(staged.appDir);
+    const result = await installSourceDeps(this.registry.get(entry.id)!, pkgs, {
+      runtime: this.runtime,
+      settings: getSettings(),
+      token,
+    });
+    if (result.ok) {
+      this.registry.patch(entry.id, { installed: true });
+      if (!entry.iconPath) {
+        const iconPath = this.icons.resolveSourceIcon(staged.appDir, entry.id);
+        if (iconPath) this.registry.patch(entry.id, { iconPath });
+      }
+    } else if (result.message) {
+      this.errors.set(entry.id, result.message);
+    }
+    return result;
+  }
+
   async launch(id: string): Promise<LaunchResult> {
-    const entry = this.registry.get(id);
+    let entry = this.registry.get(id);
     if (!entry) return { ok: false, id, message: 'Unknown app.' };
+    const family = appFamily(entry.source);
+
+    // A hosted URL just opens its remote window — no R, no port, no install.
+    if (family === 'url' && entry.source.kind === 'url') {
+      this.openRemoteWindow(entry, entry.source.url);
+      this.errors.delete(id);
+      this.registry.patch(id, { lastLaunchedAt: new Date().toISOString() });
+      this.broadcastStatus();
+      return { ok: true, id, url: entry.source.url };
+    }
+
     if (!entry.installed) {
       return { ok: false, id, message: 'App is not installed yet.' };
     }
-    // Pre-launch probe: if the package's namespace won't load (e.g. a missing
-    // dependency), surface a clear error instead of spawning R into a halt.
-    const loads = await verifyPackageLoads(entry.pkg, { runtime: this.runtime });
-    if (!loads) {
-      const message =
-        `App "${entry.pkg}" can't load — a dependency may be missing. ` +
-        `Try Reinstall / Update to install its full dependency tree.`;
-      this.errors.set(id, message);
-      logger.error('shiny', message, id);
-      this.broadcastStatus();
-      return { ok: false, id, message };
+
+    if (family === 'package') {
+      // Pre-launch probe: if the package's namespace won't load (e.g. a missing
+      // dependency), surface a clear error instead of spawning R into a halt.
+      const loads = await verifyPackageLoads(entry.pkg!, { runtime: this.runtime });
+      if (!loads) {
+        const message =
+          `App "${entry.pkg}" can't load — a dependency may be missing. ` +
+          `Try Reinstall / Update to install its full dependency tree.`;
+        this.errors.set(id, message);
+        logger.error('shiny', message, id);
+        this.broadcastStatus();
+        return { ok: false, id, message };
+      }
+    } else if (family === 'shinyfile') {
+      // Re-stage if the staged directory is missing (e.g. after cache clear).
+      if (!entry.stagedPath || !fs.existsSync(entry.stagedPath)) {
+        let token: string | null = null;
+        try {
+          token = await credentials.getToken();
+        } catch {
+          token = null;
+        }
+        const staged = await stageSource(entry, { userDataDir: this.userDataDir, token });
+        if (!staged.ok || !staged.appDir) {
+          const message = staged.message ?? 'Could not stage the app.';
+          this.errors.set(id, message);
+          this.broadcastStatus();
+          return { ok: false, id, message };
+        }
+        this.registry.patch(id, { stagedPath: staged.appDir });
+        entry = this.registry.get(id)!;
+      }
     }
+
     const result = await this.supervisor.launch(entry, this.runtime, getSettings());
     if (!result.ok) {
       if (result.message) this.errors.set(id, result.message);
@@ -275,6 +357,47 @@ export class AppContext {
     });
   }
 
+  /**
+   * Open a HOSTED URL app's remote window. Unlike the local-app window this has
+   * NO preload, runs in a per-app isolated (non-persistent) session partition,
+   * and only ever loads https. Non-https targets and popups are routed to the
+   * system browser rather than the window.
+   */
+  private openRemoteWindow(entry: AppEntry, url: string): void {
+    const settings = getSettings();
+    const win = new BrowserWindow({
+      width: settings.defaultWindowWidth,
+      height: settings.defaultWindowHeight,
+      title: entry.name,
+      icon: entry.iconPath ?? this.defaultIconPath(),
+      frame: !entry.frameless,
+      backgroundColor: '#1a1a1d',
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        nodeIntegrationInSubFrames: false,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        partition: `remote:${entry.id}`,
+      },
+    });
+    win.setMenuBarVisibility(false);
+
+    // Keep the window on https; hand anything else to the system browser.
+    win.webContents.on('will-navigate', (event, target) => {
+      if (!/^https:\/\//i.test(target)) {
+        event.preventDefault();
+      }
+    });
+    win.webContents.setWindowOpenHandler(({ url: target }) => {
+      if (/^https:\/\//i.test(target)) void shell.openExternal(target);
+      return { action: 'deny' };
+    });
+
+    void win.loadURL(url);
+  }
+
   stop(id: string): OkResult {
     this.supervisor.stop(id);
     return { ok: true };
@@ -292,6 +415,27 @@ export class AppContext {
       title: 'Choose an icon',
       properties: ['openFile'],
       filters: [{ name: 'Images', extensions: ['png', 'svg', 'jpg', 'jpeg', 'gif', 'ico'] }],
+    });
+    if (res.canceled || res.filePaths.length === 0) return undefined;
+    return res.filePaths[0];
+  }
+
+  /** File picker for a Shiny app .zip archive (SHINY FILE family). */
+  async pickZipFile(): Promise<string | undefined> {
+    const res = await dialog.showOpenDialog(this.mainWindow ?? undefined!, {
+      title: 'Choose a Shiny app .zip',
+      properties: ['openFile'],
+      filters: [{ name: 'Zip archive', extensions: ['zip'] }],
+    });
+    if (res.canceled || res.filePaths.length === 0) return undefined;
+    return res.filePaths[0];
+  }
+
+  /** Directory picker for a local Shiny app folder (SHINY FILE family). */
+  async pickFolder(): Promise<string | undefined> {
+    const res = await dialog.showOpenDialog(this.mainWindow ?? undefined!, {
+      title: 'Choose a Shiny app folder',
+      properties: ['openDirectory'],
     });
     if (res.canceled || res.filePaths.length === 0) return undefined;
     return res.filePaths[0];

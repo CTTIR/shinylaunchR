@@ -31,7 +31,7 @@ interface RunningApp {
   window?: BrowserWindow;
 }
 
-/** Build the R expression that starts the Shiny app headless on a fixed port. */
+/** Build the R expression that starts a PACKAGE app headless on a fixed port. */
 export function buildLaunchScript(pkg: string, fun: string, port: number): string {
   if (!isValidPkg(pkg)) throw new Error(`invalid package: ${pkg}`);
   if (!isValidName(fun)) throw new Error(`invalid function: ${fun}`);
@@ -39,6 +39,21 @@ export function buildLaunchScript(pkg: string, fun: string, port: number): strin
     `options(shiny.port = ${port}, shiny.host = "127.0.0.1", shiny.launch.browser = FALSE)`,
     `library(${pkg})`,
     `${pkg}::${fun}()`,
+  ].join('; ');
+}
+
+/**
+ * Build the R expression that runs a SHINY FILE / `source` app from its staged
+ * directory headless on a fixed port. `appDir` is an absolute on-disk path; it
+ * is emitted as a forward-slash R string literal (R accepts these on Windows)
+ * and rejected if it could break out of the literal.
+ */
+export function buildRunAppScript(appDir: string, port: number): string {
+  const safe = appDir.replace(/\\/g, '/');
+  if (!safe || /["\n\r]/.test(safe)) throw new Error(`invalid app directory: ${appDir}`);
+  return [
+    `options(shiny.port = ${port}, shiny.host = "127.0.0.1", shiny.launch.browser = FALSE)`,
+    `shiny::runApp("${safe}")`,
   ].join('; ');
 }
 
@@ -150,14 +165,22 @@ export class ShinySupervisor {
     }
 
     let script: string;
+    let what: string;
     try {
-      script = buildLaunchScript(entry.pkg, entry.fun, port);
+      if (entry.source.kind === 'source') {
+        if (!entry.stagedPath) throw new Error('source app is not staged yet');
+        script = buildRunAppScript(entry.stagedPath, port);
+        what = `runApp("${entry.stagedPath}")`;
+      } else {
+        script = buildLaunchScript(entry.pkg!, entry.fun!, port);
+        what = `${entry.pkg}::${entry.fun}()`;
+      }
     } catch (err) {
       return { ok: false, id: entry.id, message: String(err) };
     }
 
     const url = `http://127.0.0.1:${port}`;
-    logger.info('shiny', `Launching ${entry.pkg}::${entry.fun}() on ${url}`, entry.id);
+    logger.info('shiny', `Launching ${what} on ${url}`, entry.id);
 
     const child = this.spawner(resolved.rPath, ['--vanilla', '-e', script], {
       env: runtime.childEnv(),
