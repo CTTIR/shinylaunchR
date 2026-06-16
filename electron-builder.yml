@@ -12,6 +12,10 @@ extraResources:
     to: resources
     filter:
       - "**/*"
+  # Ship the project license + attribution in every artifact (Apache-2.0 §4a/§4d).
+  - LICENSE
+  - NOTICE
+  - THIRD_PARTY_LICENSES.md
 extraMetadata:
   main: out/main/main.js
 # Publish target so `electron-builder --publish always` uploads to a GitHub Release.
