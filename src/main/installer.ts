@@ -142,6 +142,40 @@ export function buildGithubScript(
   return [...libSetup(lib, repos), ...installer, ...loadGate(pkg)].join('; ');
 }
 
+/**
+ * Build the R expression that installs the dependencies a SHINY FILE / `source`
+ * app needs. `pkgs` is the (validated) set scanned from the app's files; `shiny`
+ * is always ensured. Only packages not already present in the managed library
+ * are installed (so re-staging is cheap), then `shiny` is load-gated before the
+ * INSTALL_OK sentinel. There is no package to `library()` here — the app is run
+ * later with `shiny::runApp(dir)`.
+ */
+export function buildSourceInstallScript(
+  pkgs: string[],
+  lib: string,
+  repos: string,
+  preferPak: boolean,
+): string {
+  const valid = [...new Set(pkgs.filter(isValidPkg))];
+  const list = valid.includes('shiny') ? valid : ['shiny', ...valid];
+  const vec = list.map((p) => `"${p}"`).join(', ');
+  const installMissing = preferPak
+    ? `pak::pkg_install(missing, lib = lib, dependencies = TRUE, upgrade = FALSE, ask = FALSE)`
+    : `utils::install.packages(missing, lib = lib, repos = "${repos}", dependencies = TRUE)`;
+  return [
+    ...libSetup(lib, repos),
+    ...(preferPak ? [ensureHelper('pak', repos)] : []),
+    `pkgs <- c(${vec})`,
+    `missing <- pkgs[!vapply(pkgs, function(p) requireNamespace(p, quietly = TRUE), logical(1))]`,
+    `if (length(missing) > 0) { ` +
+      `cat("Installing app dependencies:", paste(missing, collapse = ", "), "\\n"); ` +
+      `${installMissing} }`,
+    `if (!requireNamespace("shiny", quietly = TRUE)) ` +
+      `stop("shiny is required but could not be installed")`,
+    `cat("INSTALL_OK\\n")`,
+  ].join('; ');
+}
+
 /** Build a quick R expression that reports whether `pkg` loads in the managed lib. */
 export function buildLoadCheckScript(pkg: string): string {
   if (!isValidPkg(pkg)) throw new Error(`invalid package: ${pkg}`);
@@ -156,34 +190,25 @@ export interface InstallDeps {
   spawner?: (cmd: string, args: string[], options: SpawnOptions) => ReturnType<typeof spawn>;
 }
 
-/** Install (or reinstall) the package for `entry`. Resolves with the result. */
-export function installPackage(entry: AppEntry, deps: InstallDeps): Promise<InstallResult> {
-  const { runtime, settings } = deps;
-  const resolved = runtime.resolveRscript();
+/**
+ * Spawn a supervised Rscript that runs `script`, stream its output to the logger
+ * with secret redaction, and resolve once it exits. Success requires a clean
+ * exit *and* the INSTALL_OK sentinel. Shared by package and source installs.
+ */
+export function runInstallScript(
+  entry: AppEntry,
+  script: string,
+  deps: InstallDeps,
+  label: string,
+): Promise<InstallResult> {
+  const resolved = deps.runtime.resolveRscript();
   if (!resolved) {
     const message = 'R is not available — cannot install. Set up R in the R Runtime panel.';
     logger.error('installer', message, entry.id);
     return Promise.resolve({ ok: false, id: entry.id, message });
   }
-
-  const lib = runtime.ensureLibrary();
-  let script: string;
-  try {
-    const repos = safeRepos(settings.cranMirror);
-    script =
-      entry.source.kind === 'cran'
-        ? buildCranScript(entry.pkg, lib, repos, settings.preferPak)
-        : buildGithubScript(entry.source.repo, entry.pkg, lib, repos, settings.preferPak);
-  } catch (err) {
-    const message = `Could not build install script: ${String(err)}`;
-    logger.error('installer', message, entry.id);
-    return Promise.resolve({ ok: false, id: entry.id, message });
-  }
-
-  const env = runtime.childEnv(deps.token ? { GITHUB_PAT: deps.token } : {});
+  const env = deps.runtime.childEnv(deps.token ? { GITHUB_PAT: deps.token } : {});
   const spawner = deps.spawner ?? spawn;
-
-  logger.info('installer', `Installing ${entry.pkg} (${entry.source.kind})…`, entry.id);
 
   return new Promise<InstallResult>((resolve) => {
     let sawOk = false;
@@ -217,7 +242,7 @@ export function installPackage(entry: AppEntry, deps: InstallDeps): Promise<Inst
         logger.log(
           ok ? 'info' : 'error',
           'installer',
-          ok ? `Installed ${entry.pkg}.` : `Install of ${entry.pkg} failed (exit ${code}).`,
+          ok ? `Installed ${label}.` : `Install of ${label} failed (exit ${code}).`,
           entry.id,
         );
         finish({
@@ -231,6 +256,50 @@ export function installPackage(entry: AppEntry, deps: InstallDeps): Promise<Inst
       finish({ ok: false, id: entry.id, message: String(err) });
     }
   });
+}
+
+/** Install (or reinstall) the package for a PACKAGE-family `entry`. */
+export function installPackage(entry: AppEntry, deps: InstallDeps): Promise<InstallResult> {
+  const { settings } = deps;
+  const lib = deps.runtime.ensureLibrary();
+  let script: string;
+  try {
+    const repos = safeRepos(settings.cranMirror);
+    if (entry.source.kind === 'cran') {
+      script = buildCranScript(entry.pkg!, lib, repos, settings.preferPak);
+    } else if (entry.source.kind === 'github') {
+      script = buildGithubScript(entry.source.repo, entry.pkg!, lib, repos, settings.preferPak);
+    } else {
+      throw new Error('installPackage called for a non-package source');
+    }
+  } catch (err) {
+    const message = `Could not build install script: ${String(err)}`;
+    logger.error('installer', message, entry.id);
+    return Promise.resolve({ ok: false, id: entry.id, message });
+  }
+  logger.info('installer', `Installing ${entry.pkg} (${entry.source.kind})…`, entry.id);
+  return runInstallScript(entry, script, deps, entry.pkg!);
+}
+
+/** Install the scanned dependency set for a SHINY FILE / `source` app. */
+export function installSourceDeps(
+  entry: AppEntry,
+  pkgs: string[],
+  deps: InstallDeps,
+): Promise<InstallResult> {
+  const { settings } = deps;
+  const lib = deps.runtime.ensureLibrary();
+  let script: string;
+  try {
+    const repos = safeRepos(settings.cranMirror);
+    script = buildSourceInstallScript(pkgs, lib, repos, settings.preferPak);
+  } catch (err) {
+    const message = `Could not build install script: ${String(err)}`;
+    logger.error('installer', message, entry.id);
+    return Promise.resolve({ ok: false, id: entry.id, message });
+  }
+  logger.info('installer', `Resolving dependencies for "${entry.name}"…`, entry.id);
+  return runInstallScript(entry, script, deps, entry.name);
 }
 
 export interface LoadCheckDeps {

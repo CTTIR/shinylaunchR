@@ -23,6 +23,11 @@
   --status-installing: #d6932f; /* amber — distinct from the blue accent/running */
   --status-green: #2e9e5b;
   --status-red: #d24b4b;
+
+  /* Hex tile fills: colored (package) uses --accent-strong; grey (non-package)
+     uses --hex-grey with --hex-grey-ink for the monogram/glyph contrast. */
+  --hex-grey: #6b6b72;
+  --hex-grey-ink: #ffffff;
 }
 
 :root[data-theme='dark'] {
@@ -41,6 +46,9 @@
   --accent-pressed: #235d97;
   --accent-soft: rgba(117, 170, 219, 0.18);
   --accent-contrast: #ffffff;
+  /* Mid-dark grey reads as "neutral, not a package" on the near-black surface. */
+  --hex-grey: #4c4c55;
+  --hex-grey-ink: #e8e8ea;
 }
 
 :root[data-theme='light'] {
@@ -59,6 +67,9 @@
   --accent-pressed: #16314f;
   --accent-soft: rgba(43, 108, 176, 0.12);
   --accent-contrast: #ffffff;
+  /* Light-grey hex on white needs dark ink for the monogram/glyph. */
+  --hex-grey: #c2c2c8;
+  --hex-grey-ink: #1c1c20;
 }
 
 * {
@@ -197,6 +208,40 @@ a:hover {
   gap: 16px;
 }
 
+/* Three stacked, visually-separated family sections. */
+.grid-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.grid-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.grid-group + .grid-group {
+  border-top: 1px solid var(--border);
+  padding-top: 22px;
+}
+.grid-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.grid-group-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+}
+.grid-group-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
 .tile {
   position: relative;
   display: flex;
@@ -243,6 +288,35 @@ a:hover {
   font-family: var(--font-mono);
   font-weight: 600;
   font-size: 20px;
+}
+/* Hex tile motif: shape = "app", colour = family (colored=package, grey=not). */
+.tile .hex-icon {
+  display: block;
+  width: 52px;
+  height: 52px;
+}
+.hex-package .hex-face {
+  fill: var(--accent-strong);
+}
+.hex-grey .hex-face {
+  fill: var(--hex-grey);
+}
+.hex-mono {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 32px;
+}
+.hex-package .hex-mono {
+  fill: var(--accent-contrast);
+}
+.hex-grey .hex-mono {
+  fill: var(--hex-grey-ink);
+}
+.hex-package .hex-glyph {
+  stroke: var(--accent-contrast);
+}
+.hex-grey .hex-glyph {
+  stroke: var(--hex-grey-ink);
 }
 .tile .tile-name {
   font-size: 12.5px;

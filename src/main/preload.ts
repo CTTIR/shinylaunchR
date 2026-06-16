@@ -35,6 +35,8 @@ const api: ShinyLaunchAPI = {
   stopAll: () => ipcRenderer.invoke(IPC.stopAll),
 
   pickIcon: () => ipcRenderer.invoke(IPC.pickIcon),
+  pickZipFile: () => ipcRenderer.invoke(IPC.pickZipFile),
+  pickFolder: () => ipcRenderer.invoke(IPC.pickFolder),
 
   rStatus: () => ipcRenderer.invoke(IPC.rStatus),
   rBootstrap: () => ipcRenderer.invoke(IPC.rBootstrap),

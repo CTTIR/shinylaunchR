@@ -1,13 +1,24 @@
-# shinylaunchR
+# shinylaunchR <img src="resources/icon.png" align="right" height="120" alt="shinylaunchR hex logo" />
 
 A cross-platform desktop **launchpad for R/Shiny apps**. You see a grid of app
-tiles; a **`+` tile** registers a new Shiny app (from CRAN or GitHub) by naming
-its package and launcher function. Click a tile and the app opens in its **own
-native desktop window** while R runs headless in the background.
+tiles grouped into three families — **Packages**, **Shiny apps**, and **Hosted
+URLs** — each ending in its own **`+` tile**. Click a tile and the app opens in
+its **own native desktop window** while R runs headless in the background.
 
-> ![screenshot placeholder](resources/icon.png)
->
-> *(screenshot placeholder — a dark, Hugo-Coder-styled grid of app tiles)*
+- **Packages** — a Shiny app shipped as an R package (CRAN or a GitHub package
+  repo); you name the package and its launcher function. Tiles use the package's
+  real hex logo when it has one, else a **colored** hex.
+- **Shiny apps** — non-package Shiny *files*: an uploaded `.zip`, a local folder,
+  a zip URL, a gist, or a GitHub *source* repo (`app.R`, or `ui.R`+`server.R`).
+  Files are staged into a private app directory and run with `shiny::runApp()`.
+  Tiles use a **grey** hex.
+- **Hosted URLs** — a Shiny app already running somewhere (shinyapps.io, Connect,
+  …); opens the `https://` URL in an isolated window. Nothing is installed; tiles
+  use a **grey** hex with a globe glyph.
+
+The hex *shape* is the shared motif (it says "app"); the *colour* signals the
+family — colored means a package, grey means everything else. A user-supplied
+icon always overrides the generated hex.
 
 shinylaunchR is **not** an R package — it is an Electron application that
 *manages* R as a subprocess.
@@ -16,19 +27,24 @@ shinylaunchR is **not** an R package — it is an Electron application that
 
 ## The launchpad concept
 
-- **`+`** to add an app: choose a source (CRAN package or GitHub `org/repo`),
-  the R **package name**, and the **launcher function** the package exposes
-  (e.g. `mp_run_app`). shinylaunchR installs the package into a private managed
-  library and shows live progress.
-- **Click** a ready tile to launch: shinylaunchR starts R headless, waits for
-  the Shiny server, and opens the app in a dedicated window with its own
-  taskbar entry.
+- **`+`** to add an app: each section's `+` tile opens the Add dialog pre-set to
+  that family. For a **package** you give the source (CRAN or GitHub `org/repo`),
+  the R **package name**, and the **launcher function** (e.g. `mp_run_app`); for a
+  **Shiny app** you upload a `.zip`, pick a local folder, or point at a zip
+  URL / gist / GitHub source repo; for a **hosted URL** you just paste the
+  `https://` address. Packages and Shiny apps install their dependencies into a
+  private managed library and show live progress.
+- **Click** a ready tile to launch: package and Shiny-file apps start R headless
+  (waiting for the Shiny server) and open in a dedicated window with its own
+  taskbar entry; a hosted URL opens its remote window directly.
 - **Close** the window to stop that app's R process. Quitting shinylaunchR
   cleanly terminates every child process — no orphans.
 
-The launcher function is only ever called as a fully-qualified `pkg::fun()` —
-it is validated against `^[A-Za-z.][A-Za-z0-9._]*$` and **never** interpolated
-into a shell command.
+A package launcher function is only ever called as a fully-qualified `pkg::fun()`
+— validated against `^[A-Za-z.][A-Za-z0-9._]*$` and **never** interpolated into a
+shell command; Shiny-file apps run via `shiny::runApp("<staged dir>")`. Uploaded
+zips are extracted with built-in zip-slip protection, local folders are copied
+(never run in place), and remote fetches are https-only.
 
 ---
 

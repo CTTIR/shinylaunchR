@@ -54,6 +54,54 @@ describe('validateInput', () => {
   });
 });
 
+describe('validateInput — non-package families', () => {
+  it('accepts a hosted https URL with no pkg/fun', () => {
+    const v = validateInput({ name: 'Hosted', source: { kind: 'url', url: 'https://x.shinyapps.io/a/' } });
+    expect(v.pkg).toBeUndefined();
+    expect(v.fun).toBeUndefined();
+    expect(v.source).toEqual({ kind: 'url', url: 'https://x.shinyapps.io/a/' });
+  });
+
+  it('rejects a non-https URL', () => {
+    expect(() =>
+      validateInput({ name: 'Hosted', source: { kind: 'url', url: 'http://insecure/' } }),
+    ).toThrow(RegistryError);
+  });
+
+  it('accepts an uploaded-zip source app', () => {
+    expect(() =>
+      validateInput({
+        name: 'Zipped',
+        source: { kind: 'source', origin: { from: 'zip', filePath: 'C:/tmp/app.zip' } },
+      }),
+    ).not.toThrow();
+  });
+
+  it('accepts a local-folder source app with a safe appDir', () => {
+    expect(() =>
+      validateInput({
+        name: 'Local',
+        source: { kind: 'source', origin: { from: 'local', path: '/home/me/app' }, appDir: 'inst/shiny' },
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects a traversal appDir', () => {
+    expect(() =>
+      validateInput({
+        name: 'Bad',
+        source: { kind: 'source', origin: { from: 'local', path: '/home/me/app' }, appDir: '../etc' },
+      }),
+    ).toThrow(RegistryError);
+  });
+
+  it('rejects a zip source with neither url nor filePath', () => {
+    expect(() =>
+      validateInput({ name: 'Bad', source: { kind: 'source', origin: { from: 'zip' } } }),
+    ).toThrow(RegistryError);
+  });
+});
+
 describe('Registry CRUD', () => {
   it('creates the file and round-trips an add', () => {
     const reg = new Registry(file);
@@ -130,5 +178,22 @@ describe('corrupt-file recovery', () => {
     const reg = new Registry(file);
     expect(reg.list()).toHaveLength(1);
     expect(reg.get('ok')).toBeTruthy();
+  });
+
+  it('migrates: existing cran/github entries (with pkg+fun) keep loading; url/source need none', () => {
+    const payload = {
+      version: 1,
+      apps: [
+        { id: 'pkg', name: 'Pkg', pkg: 'molpathR', fun: 'mp_run_app', source: { kind: 'cran' }, installed: true, createdAt: 'x' },
+        { id: 'url', name: 'Url', source: { kind: 'url', url: 'https://x.io/a/' }, installed: true, createdAt: 'x' },
+        { id: 'src', name: 'Src', source: { kind: 'source', origin: { from: 'zip', filePath: '/a.zip' } }, installed: false, createdAt: 'x' },
+      ],
+    };
+    fs.writeFileSync(file, JSON.stringify(payload));
+    const reg = new Registry(file);
+    expect(reg.list()).toHaveLength(3);
+    expect(reg.get('pkg')?.pkg).toBe('molpathR');
+    expect(reg.get('url')?.source.kind).toBe('url');
+    expect(reg.get('src')?.source.kind).toBe('source');
   });
 });

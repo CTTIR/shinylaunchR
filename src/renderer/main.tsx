@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client';
 import type {
   AppEntry,
   AppEntryInput,
+  AppFamily,
   AppSettings,
   AppStatus,
   LogEvent,
@@ -36,7 +37,9 @@ function App() {
   const [statuses, setStatuses] = useState<Map<string, AppStatus>>(new Map());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemePreference>('system');
-  const [dialog, setDialog] = useState<{ open: boolean; editing?: AppEntry }>({ open: false });
+  const [dialog, setDialog] = useState<{ open: boolean; editing?: AppEntry; family?: AppFamily }>({
+    open: false,
+  });
   const [panel, setPanel] = useState<Panel>(null);
   const [helpSection, setHelpSection] = useState<HelpSection>('help');
   const [logOpen, setLogOpen] = useState(false);
@@ -242,7 +245,7 @@ function App() {
           selectedId={selectedId}
           onSelect={select}
           onLaunch={launch}
-          onAdd={() => setDialog({ open: true })}
+          onAdd={(family) => setDialog({ open: true, family })}
           onContextMenu={onContextMenu}
         />
       </div>
@@ -259,6 +262,7 @@ function App() {
       {dialog.open && (
         <RegisterDialog
           editing={dialog.editing}
+          initialFamily={dialog.family}
           onClose={() => setDialog({ open: false })}
           onSubmit={submitDialog}
         />
