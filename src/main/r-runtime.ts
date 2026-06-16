@@ -180,6 +180,7 @@ export class RRuntimeManager {
       try {
         const child = this.spawner(rscriptPath, ['--version'], {
           stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
         });
         child.stdout?.on('data', (d) => (out += d.toString()));
         child.stderr?.on('data', (d) => (out += d.toString()));

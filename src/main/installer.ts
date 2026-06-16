@@ -132,6 +132,7 @@ export function installPackage(entry: AppEntry, deps: InstallDeps): Promise<Inst
       const child = spawner(resolved.rPath, ['--vanilla', '-e', script], {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
       });
       const onData = (level: 'info' | 'error') => (buf: Buffer) => {
         const text = buf.toString();

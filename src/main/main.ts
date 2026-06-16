@@ -9,6 +9,7 @@ import { logger } from './logger';
 import { AppContext } from './context';
 import { registerIpc } from './ipc';
 import { installMenu } from './menu';
+import { resourcePath } from './resources';
 
 let mainWindow: BrowserWindow | null = null;
 let context: AppContext | null = null;
@@ -21,7 +22,7 @@ function createMainWindow(): BrowserWindow {
     minHeight: 520,
     backgroundColor: '#1a1a1d',
     title: 'shinylaunchR',
-    icon: path.join(process.env.APP_ROOT ?? app.getAppPath(), 'resources', 'icon.png'),
+    icon: resourcePath('icon.png'),
     show: false,
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),

@@ -1,0 +1,18 @@
+# Normalise line endings: LF in the repo, so Windows checkouts don't corrupt
+# scripts or shift bundles. Text is auto-detected; force LF on source/configs.
+* text=auto eol=lf
+
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+
+# Binary assets — never normalise.
+*.png binary
+*.ico binary
+*.icns binary

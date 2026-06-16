@@ -29,6 +29,7 @@ import { IconManager } from './icons';
 import { installPackage } from './installer';
 import { getSettings, initSettings, setSettings } from './settings';
 import * as credentials from './credentials';
+import { resourcePath } from './resources';
 
 export class AppContext {
   readonly registry: Registry;
@@ -284,8 +285,7 @@ export class AppContext {
   }
 
   private defaultIconPath(): string {
-    // resources are unpacked alongside the app
-    return path.join(process.resourcesPath ?? app.getAppPath(), 'resources', 'icon.png');
+    return resourcePath('icon.png');
   }
 
   // -- registry import / export -------------------------------------------

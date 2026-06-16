@@ -75,6 +75,7 @@ export class IconManager {
         const child = this.spawner(resolved.rPath, ['--vanilla', '-e', script], {
           env: runtime.childEnv(),
           stdio: ['ignore', 'pipe', 'ignore'],
+          windowsHide: true,
         });
         child.stdout?.on('data', (d) => (out += d.toString()));
         child.on('error', () => resolve(undefined));

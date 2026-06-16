@@ -7,6 +7,11 @@ directories:
 files:
   - out/**/*
   - package.json
+extraResources:
+  - from: resources
+    to: resources
+    filter:
+      - "**/*"
 extraMetadata:
   main: out/main/main.js
 asarUnpack:
