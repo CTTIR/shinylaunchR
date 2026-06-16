@@ -24,6 +24,26 @@ function rPath(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
+/**
+ * Validate a CRAN mirror before it is interpolated into R source. Rejects
+ * anything that isn't a plain http(s) URL or that contains characters which
+ * would break out of the R string literal — closing R-script injection via a
+ * tampered settings value.
+ */
+export function safeRepos(url: string): string {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new Error(`invalid CRAN mirror: ${url}`);
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') {
+    throw new Error(`CRAN mirror must be http(s): ${url}`);
+  }
+  if (/["\\\n\r]/.test(u.href)) throw new Error('CRAN mirror contains illegal characters');
+  return u.href;
+}
+
 /** Build the R expression to install a CRAN package. */
 export function buildCranScript(pkg: string, lib: string, repos: string): string {
   if (!isValidName(pkg)) throw new Error(`invalid package: ${pkg}`);
@@ -84,10 +104,11 @@ export function installPackage(entry: AppEntry, deps: InstallDeps): Promise<Inst
   const lib = runtime.ensureLibrary();
   let script: string;
   try {
+    const repos = safeRepos(settings.cranMirror);
     script =
       entry.source.kind === 'cran'
-        ? buildCranScript(entry.pkg, lib, settings.cranMirror)
-        : buildGithubScript(entry.source.repo, lib, settings.cranMirror, settings.preferPak);
+        ? buildCranScript(entry.pkg, lib, repos)
+        : buildGithubScript(entry.source.repo, lib, repos, settings.preferPak);
   } catch (err) {
     const message = `Could not build install script: ${String(err)}`;
     logger.error('installer', message, entry.id);

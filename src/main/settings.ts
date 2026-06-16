@@ -28,6 +28,15 @@ function coerce(raw: unknown): AppSettings {
   if (!['auto', 'range'].includes(merged.portBehavior)) merged.portBehavior = 'auto';
   merged.defaultWindowWidth = Math.max(400, Math.min(4000, merged.defaultWindowWidth));
   merged.defaultWindowHeight = Math.max(300, Math.min(4000, merged.defaultWindowHeight));
+  // CRAN mirror must be a clean http(s) URL — it is interpolated into R source.
+  try {
+    const u = new URL(merged.cranMirror);
+    if ((u.protocol !== 'https:' && u.protocol !== 'http:') || /["\\\n\r]/.test(u.href)) {
+      throw new Error('bad mirror');
+    }
+  } catch {
+    merged.cranMirror = DEFAULT_SETTINGS.cranMirror;
+  }
   return merged;
 }
 

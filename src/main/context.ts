@@ -136,13 +136,7 @@ export class AppContext {
     const entry = this.registry.get(id);
     this.registry.remove(id);
     this.errors.delete(id);
-    if (entry?.iconPath) {
-      try {
-        fs.rmSync(entry.iconPath, { force: true });
-      } catch {
-        // ignore
-      }
-    }
+    if (entry?.iconPath) this.deleteCachedIcon(entry.iconPath);
     if (alsoUninstall && entry) {
       logger.info(
         'registry',
@@ -251,6 +245,23 @@ export class AppContext {
     });
     if (res.canceled || res.filePaths.length === 0) return undefined;
     return res.filePaths[0];
+  }
+
+  /**
+   * Delete a cached icon, but ONLY if it resolves to a file inside the per-user
+   * icon cache directory. An imported registry could carry an attacker-chosen
+   * iconPath; this guard prevents arbitrary file deletion on app removal.
+   */
+  private deleteCachedIcon(iconPath: string): void {
+    try {
+      const cacheReal = fs.realpathSync(path.join(this.userDataDir, 'icons'));
+      const real = fs.realpathSync(iconPath);
+      if (real === cacheReal || real.startsWith(cacheReal + path.sep)) {
+        fs.rmSync(real, { force: true });
+      }
+    } catch {
+      // missing path / outside cache — leave it untouched
+    }
   }
 
   private defaultIconPath(): string {
