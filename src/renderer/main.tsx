@@ -25,6 +25,7 @@ import { RManagerPanel } from './components/RManagerPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { CredentialsPanel } from './components/CredentialsPanel';
 import { HelpPanel, type HelpSection } from './components/HelpPanel';
+import { StatusFooter } from './components/StatusFooter';
 import './styles/theme.css';
 
 type Panel = 'r' | 'settings' | 'credentials' | 'help' | null;
@@ -261,6 +262,13 @@ function App() {
           onContextMenu={onContextMenu}
         />
       </div>
+
+      <StatusFooter
+        onOpenAbout={() => {
+          setHelpSection('about');
+          setPanel('help');
+        }}
+      />
 
       {logOpen && (
         <LogConsole
