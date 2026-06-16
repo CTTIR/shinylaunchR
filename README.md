@@ -138,6 +138,10 @@ unavailable, install R yourself and point shinylaunchR at it. Target version:
   installer child process via a process-scoped `GITHUB_PAT` env var only, and
   redacted from all logs.
 
+Runtime dependencies carry **no known vulnerabilities** (`npm audit --omit=dev`)
+and **no copyleft licenses**. Remaining advisories are dev-tooling only and are
+tracked, with rationale, in [`docs/dependency-advisories.md`](docs/dependency-advisories.md).
+
 ---
 
 ## Suite context
