@@ -181,8 +181,9 @@ npm run dist       # build + package for the current OS
 npm run dist:win   # / dist:mac / dist:linux
 ```
 
-Icons under `resources/` are generated placeholders (`node scripts/gen-icons.mjs`);
-replace them with branded assets before release.
+App icons under `resources/` (`icon.png` / `icon.ico` / `icon.icns`) are the
+branded blue play-hexagon mark. `scripts/gen-icons.mjs` remains as a fallback
+placeholder generator but is not needed for normal builds.
 
 ---
 

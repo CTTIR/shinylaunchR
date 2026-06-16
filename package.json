@@ -14,7 +14,6 @@
     "url": "https://github.com/cttir/shinylaunchR.git"
   },
   "main": "out/main/main.js",
-  "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
