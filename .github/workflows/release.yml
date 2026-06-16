@@ -1,0 +1,118 @@
+# .github/workflows/release.yml
+#
+# Builds shinylaunchR installers for Windows, macOS, and Linux on every version
+# tag and publishes them to a GitHub Release.
+#
+# Artifacts produced:
+#   Windows : shinylaunchR-Setup-<ver>.exe (NSIS) + portable .exe
+#   macOS   : shinylaunchR-<ver>.dmg (+ .zip for auto-update), x64 + arm64
+#   Linux   : shinylaunchR-<ver>.AppImage + .deb
+#
+# Signing is OPT-IN. With the signing secrets unset, the build still runs and
+# produces UNSIGNED artifacts (which trigger a first-launch Gatekeeper /
+# SmartScreen prompt the user clicks past). Populate the secrets later and the
+# same workflow signs + notarizes automatically — no edits needed.
+#
+# Trigger:
+#   git tag v0.1.0
+#   git push origin v0.1.0
+# (Or run manually via the Actions tab — workflow_dispatch.)
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # needed to create the GitHub Release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+          - os: ubuntu-latest
+            platform: linux
+
+    runs-on: ${{ matrix.os }}
+    name: build (${{ matrix.platform }})
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Quality gate before producing artifacts — never ship a red build.
+      - name: Typecheck / lint / test
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run test
+
+      # --- Build & publish -------------------------------------------------
+      # electron-builder reads the matching target from electron-builder.yml.
+      # --publish always: uploads artifacts to the GitHub Release for this tag.
+      # GH_TOKEN is the built-in token; no PAT needed for same-repo releases.
+
+      - name: Build & publish (macOS)
+        if: matrix.platform == 'mac'
+        run: npx electron-builder --mac --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # --- Apple signing + notarization (opt-in; safe to leave unset) ---
+          # CSC_LINK: base64 of your Developer ID Application .p12
+          # CSC_KEY_PASSWORD: the .p12 password
+          # APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID: notarization
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Build & publish (Windows)
+        if: matrix.platform == 'win'
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # --- Windows code signing (opt-in; safe to leave unset) ----------
+          # CSC_LINK: base64 of your code-signing .pfx
+          # CSC_KEY_PASSWORD: the .pfx password
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Build & publish (Linux)
+        if: matrix.platform == 'linux'
+        run: npx electron-builder --linux --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Keep a copy on the workflow run too (handy for debugging a tag).
+      - name: Upload artifacts to the run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shinylaunchR-${{ matrix.platform }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+            dist/*.AppImage
+            dist/*.deb
+          if-no-files-found: ignore
+          retention-days: 14
