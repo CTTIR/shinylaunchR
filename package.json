@@ -7,7 +7,7 @@
     "email": "raban.heller@outlook.com",
     "url": "https://orcid.org/0000-0001-8006-9742"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "homepage": "https://github.com/cttir/shinylaunchR",
   "repository": {
     "type": "git",

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Installs an app's R package into the managed library, from CRAN or GitHub.
  * Runs a supervised child Rscript process and streams stdout/stderr to the

@@ -253,7 +253,9 @@ third parties for the self-hosted model.
 
 ## Legal & compliance
 
-- **License:** MIT (see [`LICENSE`](LICENSE)).
+- **License:** Apache License 2.0 (see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE)).
+  Ownership and the commercial/dual-license path are explained in
+  [`LICENSING.md`](LICENSING.md).
 - **Third-party licenses:** all bundled dependencies are permissive
   (MIT/ISC/Apache/BSD) — inventory in
   [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
@@ -279,4 +281,6 @@ marks are used; the app icon is original work.
 
 ## License
 
-MIT © 2026 Raban Heller ([ORCID 0000-0001-8006-9742](https://orcid.org/0000-0001-8006-9742)).
+Licensed under the **Apache License, Version 2.0** — Copyright © 2026 Raban
+Heller ([ORCID 0000-0001-8006-9742](https://orcid.org/0000-0001-8006-9742)).
+See [`LICENSE`](LICENSE), [`NOTICE`](NOTICE), and [`LICENSING.md`](LICENSING.md).

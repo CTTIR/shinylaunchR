@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * All ipcMain handlers, with strict input validation. The renderer can only
  * reach privileged operations through these channels; every argument crossing

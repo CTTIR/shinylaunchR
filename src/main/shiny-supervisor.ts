@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Supervises one child Rscript process per launched Shiny app, tracks the
  * (window ↔ process ↔ port) triple, and guarantees the whole process tree is

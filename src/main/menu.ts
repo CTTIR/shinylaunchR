@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Native Electron application menu. Actions that are pure main-process logic
  * (launch/stop) are handled here directly; actions that drive renderer UI

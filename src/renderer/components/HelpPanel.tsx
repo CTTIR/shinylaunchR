@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { useEffect, useState } from 'react';
 import type { AppInfo } from '@shared/types';
 import { api } from '../lib/api';
@@ -113,7 +118,17 @@ export function HelpPanel({
                 </a>
               </div>
               <div className="k">License</div>
-              <div className="v">MIT</div>
+              <div className="v">
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void api.openExternal(`${info.repo}/blob/main/LICENSE`);
+                  }}
+                >
+                  Apache License 2.0
+                </a>
+              </div>
               <div className="k">Electron</div>
               <div className="v">{info.electron}</div>
               <div className="k">Node</div>

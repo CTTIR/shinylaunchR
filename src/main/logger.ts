@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Structured logging: writes to a rotating-ish log file and emits events that
  * the IPC layer forwards to the renderer's Log Console. Electron-free so it can

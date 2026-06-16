@@ -1,7 +1,8 @@
 # Third-Party Licenses
 
-shinylaunchR is MIT-licensed (see `LICENSE`). It bundles the third-party
-**production** dependencies listed below. All are permissive
+shinylaunchR is licensed under the Apache License 2.0 (see `LICENSE` and
+`NOTICE`). It bundles the third-party **production** dependencies listed below.
+All are permissive
 (MIT / ISC / Apache-2.0 / BSD) — there are **no copyleft (GPL/AGPL/LGPL) or
 unlicensed** dependencies in the distributed application.
 

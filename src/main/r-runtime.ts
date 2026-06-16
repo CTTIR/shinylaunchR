@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * R Runtime Manager: locate / version-check / (best-effort) bootstrap a managed
  * R installation. The pure helpers (version parsing, path resolution) are

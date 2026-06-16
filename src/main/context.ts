@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Application context: owns the service instances and implements the
  * high-level operations (add / install / launch / stop / manage) that both the

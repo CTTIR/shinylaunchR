@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Electron main entry: app lifecycle, the dashboard window, and wiring of the
  * service context, IPC handlers and native menu. Guarantees all child R
