@@ -1,22 +1,24 @@
 /*
- * shinylaunchR theme — Hugo Coder inspired.
- * A single accent per theme; flat surfaces, 1px borders, understated hovers.
- * Flip the whole UI with <html data-theme="dark|light">.
+ * shinylaunchR theme — CTTIR suite identity (themakR / Hugo Coder palette).
+ * Mirrors github.com/CTTIR/themakR: Hugo Coder light #fafafa / dark #212121,
+ * the suite blue accent (#1565c0 light, #42a5f5 dark links), Inter for text and
+ * JetBrains Mono for code. A single accent per theme; flat surfaces, 1px
+ * borders, understated hovers. Flip the UI with <html data-theme="dark|light">.
  */
 
 :root {
-  /* R blue accent (matches the app icon: #9FC6E8 → #75AADB → #2B6CB0). */
-  --accent: #75aadb; /* core R blue: borders, rings, links, running state */
-  --accent-strong: #2b6cb0; /* deep R blue: filled controls (white text passes AA) */
-  --accent-pressed: #1f5388; /* darker still: pressed/hover on filled controls */
-  --accent-soft: rgba(117, 170, 219, 0.18); /* subtle fills, ring glow */
+  /* themakR suite blue (Hugo Coder link accent). */
+  --accent: #42a5f5; /* link/border/running accent (dark default) */
+  --accent-strong: #1565c0; /* themakR $primary: filled controls (white text passes AA) */
+  --accent-pressed: #0d47a1; /* darker still: pressed/hover on filled controls */
+  --accent-soft: rgba(66, 165, 245, 0.18); /* subtle fills, ring glow */
   --accent-contrast: #ffffff; /* text/icon on top of accent fills */
 
   --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
 
-  --radius: 8px;
-  --radius-sm: 5px;
+  --radius: 6px; /* themakR border-radius: 0.375rem */
+  --radius-sm: 4px;
   --tile-size: 132px;
 
   --status-grey: #6b6b72;
@@ -31,45 +33,47 @@
 }
 
 :root[data-theme='dark'] {
-  --bg: #1a1a1d;
-  --bg-elev: #212126;
-  --bg-elev-2: #26262c;
-  --text: #e8e8ea;
-  --text-dim: #a0a0a8;
-  --text-faint: #6b6b72;
-  --border: #2f2f37;
-  --border-strong: #3c3c46;
+  /* Hugo Coder dark (themakR): #212121 base, #dadada text, #4f4f4f borders. */
+  --bg: #212121;
+  --bg-elev: #2b2b2b; /* themakR --bs-secondary-bg: panels / sidebar surfaces */
+  --bg-elev-2: #353539;
+  --text: #dadada;
+  --text-dim: #a6a6a6;
+  --text-faint: #6f6f6f;
+  --border: #4f4f4f;
+  --border-strong: #5f5f5f;
   --overlay: rgba(0, 0, 0, 0.55);
-  /* On the near-black surface the light core blue reads well for links/borders. */
-  --accent: #75aadb;
-  --accent-strong: #2b6cb0;
-  --accent-pressed: #235d97;
-  --accent-soft: rgba(117, 170, 219, 0.18);
+  /* Hugo Coder dark link blue reads well on the #212121 surface. */
+  --accent: #42a5f5;
+  --accent-strong: #1565c0;
+  --accent-pressed: #0d47a1;
+  --accent-soft: rgba(66, 165, 245, 0.18);
   --accent-contrast: #ffffff;
-  /* Mid-dark grey reads as "neutral, not a package" on the near-black surface. */
+  /* Mid-dark grey reads as "neutral, not a package" on the dark surface. */
   --hex-grey: #4c4c55;
-  --hex-grey-ink: #e8e8ea;
+  --hex-grey-ink: #dadada;
 }
 
 :root[data-theme='light'] {
-  --bg: #f6f6f4;
+  /* Hugo Coder light (themakR): #fafafa base, #212121 text, #e9e9e9 code bg. */
+  --bg: #fafafa;
   --bg-elev: #ffffff;
-  --bg-elev-2: #efeff0;
-  --text: #1c1c20;
-  --text-dim: #56565e;
-  --text-faint: #8a8a92;
-  --border: #e0e0dd;
-  --border-strong: #cfcfca;
+  --bg-elev-2: #e9e9e9;
+  --text: #212121;
+  --text-dim: #5a5a5a; /* themakR secondary-color: rgba(33,33,33,0.75) */
+  --text-faint: #8a8a8a;
+  --border: #e2e2e2;
+  --border-strong: #cccccc;
   --overlay: rgba(0, 0, 0, 0.35);
-  /* On white, use the deeper blue so links/borders/text stay legible (AA). */
-  --accent: #2b6cb0;
-  --accent-strong: #1f5388;
-  --accent-pressed: #16314f;
-  --accent-soft: rgba(43, 108, 176, 0.12);
+  /* themakR $primary blue (#1565c0) stays legible (AA) on the light surface. */
+  --accent: #1565c0;
+  --accent-strong: #0d47a1;
+  --accent-pressed: #0a3880;
+  --accent-soft: rgba(21, 101, 192, 0.12);
   --accent-contrast: #ffffff;
-  /* Light-grey hex on white needs dark ink for the monogram/glyph. */
+  /* Light-grey hex on near-white needs dark ink for the monogram/glyph. */
   --hex-grey: #c2c2c8;
-  --hex-grey-ink: #1c1c20;
+  --hex-grey-ink: #212121;
 }
 
 * {
@@ -95,6 +99,13 @@ body {
 code,
 .mono {
   font-family: var(--font-mono);
+}
+
+/* themakR: Hugo Coder dark headings are pure white. */
+:root[data-theme='dark'] h1,
+:root[data-theme='dark'] h2,
+:root[data-theme='dark'] h3 {
+  color: #ffffff;
 }
 
 button {
@@ -153,66 +164,6 @@ a:hover {
   flex: 1;
   overflow: auto;
   padding: 24px;
-}
-
-/* ---- status / legal footer (start-window watermark) ---- */
-.statusbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 18px;
-  border-top: 1px solid var(--border);
-  background: var(--bg);
-  font-size: 12px;
-  color: var(--text-dim);
-  user-select: none;
-}
-.statusbar .spacer {
-  flex: 1;
-}
-.statusbar .watermark {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  letter-spacing: 0.2px;
-  opacity: 0.85;
-}
-.statusbar .watermark .mark {
-  font-weight: 600;
-}
-.statusbar .watermark .wm-name {
-  font-weight: 600;
-  color: var(--accent);
-  opacity: 0.9;
-}
-.statusbar .watermark .dot {
-  opacity: 0.5;
-}
-.statusbar .legal-links {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.statusbar .legal-links .sep {
-  opacity: 0.35;
-}
-.statusbar .link {
-  background: none;
-  border: none;
-  padding: 2px 2px;
-  margin: 0;
-  font: inherit;
-  color: var(--text-dim);
-  cursor: pointer;
-  border-radius: 4px;
-}
-.statusbar .link:hover {
-  color: var(--accent);
-  text-decoration: underline;
-}
-.statusbar .link:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
 /* ---- buttons ---- */

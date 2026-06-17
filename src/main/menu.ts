@@ -168,19 +168,32 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
     submenu: [{ label: 'Manage GitHub Token…', click: () => dispatch('open-credentials') }],
   });
 
+  const repo = 'https://github.com/cttir/shinylaunchR';
   template.push({
     label: 'Help',
     submenu: [
       { label: 'Quick Start', click: () => dispatch('open-help') },
       {
         label: 'Documentation',
-        click: () => void shell.openExternal('https://github.com/cttir/shinylaunchR#readme'),
+        click: () => void shell.openExternal(`${repo}#readme`),
       },
       {
         label: 'Report an Issue',
-        click: () => void shell.openExternal('https://github.com/cttir/shinylaunchR/issues'),
+        click: () => void shell.openExternal(`${repo}/issues`),
       },
       { label: 'Keyboard Shortcuts', click: () => dispatch('open-shortcuts') },
+      { type: 'separator' },
+      // Legal & license — kept here so it's there for anyone interested,
+      // without intruding on the dashboard. The disabled item is a subheader.
+      { label: 'Version, Legal & License', enabled: false },
+      { label: 'Version / About', click: () => dispatch('open-about') },
+      { label: 'Legal Notices & Attribution', click: () => void shell.openExternal(`${repo}/blob/main/NOTICE`) },
+      { label: 'Reference Documentation', click: () => void shell.openExternal(`${repo}#readme`) },
+      {
+        label: 'Third-Party Licenses',
+        click: () => void shell.openExternal(`${repo}/blob/main/THIRD_PARTY_LICENSES.md`),
+      },
+      { label: 'License (Apache-2.0)', click: () => void shell.openExternal(`${repo}/blob/main/LICENSE`) },
       { type: 'separator' },
       { label: 'About', click: () => dispatch('open-about') },
     ],
