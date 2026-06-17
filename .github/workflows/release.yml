@@ -78,15 +78,28 @@ jobs:
 
       - name: Build & publish (macOS)
         if: matrix.platform == 'mac'
-        run: npx electron-builder --mac --publish always
+        # Only export the signing vars when a certificate is actually present.
+        # GitHub passes an unset secret as an EMPTY string, and electron-builder
+        # treats an empty CSC_LINK as a cert path — it resolves to the repo root
+        # and fails with "not a file". With no cert we instead disable signing
+        # auto-discovery and ship an unsigned build; populate the secrets later
+        # and the same step signs + notarizes.
+        run: |
+          if [ -n "$MAC_CSC_LINK" ]; then
+            export CSC_LINK="$MAC_CSC_LINK"
+            export CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD"
+          else
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          npx electron-builder --mac --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # --- Apple signing + notarization (opt-in; safe to leave unset) ---
-          # CSC_LINK: base64 of your Developer ID Application .p12
-          # CSC_KEY_PASSWORD: the .p12 password
+          # MAC_CSC_LINK: base64 of your Developer ID Application .p12
+          # MAC_CSC_KEY_PASSWORD: the .p12 password
           # APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID: notarization
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
