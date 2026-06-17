@@ -1,0 +1,146 @@
+<!doctype html>
+<!--
+  Copyright 2026 Raban Heller
+  SPDX-License-Identifier: Apache-2.0
+
+  Getting-started guide served on the site itself (not a link out to the GitHub
+  README). Mirrors docs/getting-started.md. Styled with the shared themakR /
+  Hugo Coder identity in style.css.
+-->
+<html lang="en" data-theme="auto">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Getting started — shinylaunchR</title>
+    <meta
+      name="description"
+      content="Install shinylaunchR, learn the three app families, and add and launch your first R/Shiny app."
+    />
+    <meta name="theme-color" content="#1565c0" />
+    <link rel="icon" href="icon.png" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <nav class="navbar">
+      <span class="brand">
+        <a href="index.html">
+          <svg viewBox="0 0 512 512" aria-hidden="true" style="vertical-align: middle">
+            <defs>
+              <linearGradient id="hx" x1="0.1" y1="0" x2="0.9" y2="1">
+                <stop offset="0" stop-color="#9FC6E8" />
+                <stop offset="0.55" stop-color="#75AADB" />
+                <stop offset="1" stop-color="#2B6CB0" />
+              </linearGradient>
+            </defs>
+            <polygon points="256,50 434.4,153 434.4,359 256,462 77.6,359 77.6,153" fill="url(#hx)" stroke="url(#hx)" stroke-width="28" stroke-linejoin="round" />
+            <polygon points="206,168 206,344 360,256" fill="#fff" stroke="#fff" stroke-width="20" stroke-linejoin="round" />
+          </svg>
+          shinylaunchR
+        </a>
+      </span>
+      <span class="spacer"></span>
+      <a class="nav" href="index.html">Home</a>
+      <a class="nav" href="https://github.com/CTTIR/shinylaunchR/releases">Releases</a>
+      <a class="nav" href="https://github.com/CTTIR/shinylaunchR">GitHub</a>
+      <button class="lightswitch" id="lightswitch" title="Toggle light / dark / auto">Auto</button>
+    </nav>
+
+    <main class="wrap article">
+      <h1>Getting started with shinylaunchR</h1>
+      <p class="lead">
+        shinylaunchR is a cross-platform desktop <strong>launchpad for R/Shiny apps</strong>. It
+        shows a grid of app tiles; clicking one opens that app in its own native window while R runs
+        headless in the background. shinylaunchR is <strong>not</strong> an R package — it is an
+        Electron application that <em>manages</em> R as a subprocess.
+      </p>
+
+      <h2>Install</h2>
+      <p>
+        Download the installer for your platform from the
+        <a href="https://github.com/CTTIR/shinylaunchR/releases">Releases page</a> and run it. The
+        app ships unsigned by default, so your OS may show a warning on first launch — see the
+        <em>Why the security warning?</em> note below.
+      </p>
+
+      <h2>The three app families</h2>
+      <p>Each section ends in its own <code>+</code> tile that opens the Add dialog pre-set to that family.</p>
+      <ul>
+        <li>
+          <strong>Packages</strong> — a Shiny app shipped as an R package (CRAN or a GitHub package
+          repo). You provide the source, the package name, and the <strong>launcher function</strong>
+          (e.g. <code>mp_run_app</code>), which is called as <code>pkg::fun()</code>. Tiles use the
+          package's real hex logo when it has one, otherwise a colored hex.
+        </li>
+        <li>
+          <strong>Shiny apps</strong> — non-package Shiny <em>files</em>: an uploaded <code>.zip</code>,
+          a local folder, a zip URL, a gist, or a GitHub source repo (<code>app.R</code>, or
+          <code>ui.R</code> + <code>server.R</code>). Files are staged into a private directory and
+          run with <code>shiny::runApp()</code>.
+        </li>
+        <li>
+          <strong>Hosted URLs</strong> — a Shiny app already running somewhere (shinyapps.io,
+          Connect, …). Paste the <code>https://</code> address; nothing is installed.
+        </li>
+      </ul>
+
+      <h2>Add and launch an app</h2>
+      <ol>
+        <li>Click <strong>+ Add app</strong> (or the <code>+</code> tile in a section).</li>
+        <li>Pick a source and fill in the required fields for that family.</li>
+        <li>
+          For packages and Shiny-file apps, shinylaunchR installs dependencies into its private
+          managed library and shows live progress in the log console.
+        </li>
+        <li>
+          When the tile turns green, <strong>click</strong> it to launch. The app opens in a
+          dedicated window with its own taskbar entry; R runs headless behind it.
+        </li>
+        <li><strong>Close</strong> the window to stop that app's R process.</li>
+      </ol>
+      <p class="note">
+        Only add Shiny-file and hosted-URL apps you trust — their R code runs, or their remote page
+        loads, when launched.
+      </p>
+
+      <h2>R runtime</h2>
+      <p>
+        shinylaunchR detects R on your system or downloads a managed copy from CRAN onto your
+        machine. Use <strong>R Runtime</strong> in the menu to check status, (re-)bootstrap a managed
+        R, point at an existing installation, or open the library folder.
+      </p>
+
+      <h2>Why the security warning?</h2>
+      <p>
+        Releases ship unsigned by default, so Windows SmartScreen or macOS Gatekeeper may warn on
+        first launch. This is expected for unsigned open-source software; you can review the source
+        on <a href="https://github.com/CTTIR/shinylaunchR">GitHub</a> and click past the prompt. No
+        telemetry is collected and all data stays local.
+      </p>
+
+      <h2>Citation</h2>
+      <p>If you use shinylaunchR in your work, please cite it:</p>
+      <pre><code>@software{heller_shinylaunchr_2026,
+  author  = {Heller, Raban},
+  title   = {{shinylaunchR}: A cross-platform desktop launchpad for {R}/{Shiny} apps},
+  year    = {2026},
+  version = {0.1.0},
+  url     = {https://github.com/cttir/shinylaunchR},
+  license = {Apache-2.0}
+}</code></pre>
+    </main>
+
+    <footer>
+      Part of the
+      <a href="https://cttir.github.io/website/">CTTIR</a> suite ·
+      <span style="font-weight: 600">shinylaunchR</span> ·
+      Apache-2.0
+    </footer>
+
+    <script src="theme.js"></script>
+  </body>
+</html>

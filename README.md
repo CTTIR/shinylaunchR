@@ -314,7 +314,6 @@ BibTeX:
   year    = {2026},
   version = {0.1.0},
   url     = {https://github.com/cttir/shinylaunchR},
-  note    = {ORCID: 0000-0001-8006-9742},
   license = {Apache-2.0}
 }
 ```
