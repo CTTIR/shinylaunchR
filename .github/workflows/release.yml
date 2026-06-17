@@ -65,6 +65,12 @@ jobs:
           npm run lint
           npm run test
 
+      # Compile main/preload/renderer into out/ (+ verify-build guard) BEFORE
+      # packaging — electron-builder only packages what already exists; without
+      # this the app.asar ships without out/main/main.js and fails to launch.
+      - name: Build bundles
+        run: npm run build
+
       # --- Build & publish -------------------------------------------------
       # electron-builder reads the matching target from electron-builder.yml.
       # --publish always: uploads artifacts to the GitHub Release for this tag.
