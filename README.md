@@ -23,6 +23,8 @@ icon always overrides the generated hex.
 shinylaunchR is **not** an R package — it is an Electron application that
 *manages* R as a subprocess.
 
+New here? Start with the [getting-started guide](docs/getting-started.md).
+
 ---
 
 ## The launchpad concept
@@ -294,6 +296,28 @@ endorsed by, or sponsored by** Posit Software, PBC (RStudio), the R Foundation,
 or the maintainers of Shiny. "R", "RStudio", "Posit", and "Shiny" are trademarks
 of their respective owners, used here only descriptively. No third-party logos or
 marks are used; the app icon is original work.
+
+## Citation
+
+If you use shinylaunchR in your work, please cite it:
+
+> Heller, R. (2026). *shinylaunchR: A cross-platform desktop launchpad for
+> R/Shiny apps* (Version 0.1.0) [Computer software]. Apache-2.0.
+> https://github.com/cttir/shinylaunchR
+
+BibTeX:
+
+```bibtex
+@software{heller_shinylaunchr_2026,
+  author  = {Heller, Raban},
+  title   = {{shinylaunchR}: A cross-platform desktop launchpad for {R}/{Shiny} apps},
+  year    = {2026},
+  version = {0.1.0},
+  url     = {https://github.com/cttir/shinylaunchR},
+  note    = {ORCID: 0000-0001-8006-9742},
+  license = {Apache-2.0}
+}
+```
 
 ## License
 
