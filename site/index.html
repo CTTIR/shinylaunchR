@@ -1,0 +1,328 @@
+<!doctype html>
+<!--
+  Copyright 2026 Raban Heller
+  SPDX-License-Identifier: Apache-2.0
+
+  Landing page for shinylaunchR, published to GitHub Pages
+  (https://cttir.github.io/shinylaunchR/) by .github/workflows/pages.yml.
+
+  shinylaunchR is an Electron app, not an R package, so it has no pkgdown site
+  like the rest of the CTTIR suite. This hand-built page borrows the themakR
+  identity (Hugo Coder palette, Inter / JetBrains Mono, suite blue accent) so it
+  still looks like part of the family.
+-->
+<html lang="en" data-theme="auto">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>shinylaunchR — a desktop launchpad for R/Shiny apps</title>
+    <meta
+      name="description"
+      content="shinylaunchR is a cross-platform desktop launchpad for R/Shiny apps. Each tile opens an app in its own native window while R runs headless in the background."
+    />
+    <meta name="theme-color" content="#1565c0" />
+    <link rel="icon" href="icon.png" />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ---- themakR / Hugo Coder palette ---- */
+      :root {
+        --bg: #fafafa;
+        --surface: #ffffff;
+        --code-bg: #e9e9e9;
+        --text: #212121;
+        --text-dim: #5a5a5a;
+        --border: #e2e2e2;
+        --accent: #1565c0;
+        --accent-contrast: #ffffff;
+        --heading: #212121;
+        --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+        --radius: 0.375rem;
+      }
+      html[data-theme='dark'] {
+        --bg: #212121;
+        --surface: #2b2b2b;
+        --code-bg: #2b2b2b;
+        --text: #dadada;
+        --text-dim: #a6a6a6;
+        --border: #4f4f4f;
+        --accent: #42a5f5;
+        --heading: #ffffff;
+      }
+      @media (prefers-color-scheme: dark) {
+        html[data-theme='auto'] {
+          --bg: #212121;
+          --surface: #2b2b2b;
+          --code-bg: #2b2b2b;
+          --text: #dadada;
+          --text-dim: #a6a6a6;
+          --border: #4f4f4f;
+          --accent: #42a5f5;
+          --heading: #ffffff;
+        }
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font-ui);
+        font-size: 16px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      h1, h2, h3 { color: var(--heading); line-height: 1.25; }
+      code, pre { font-family: var(--font-mono); }
+      :not(pre) > code {
+        background: var(--code-bg);
+        padding: 0.12em 0.32em;
+        border-radius: 4px;
+        font-size: 0.9em;
+      }
+      pre {
+        background: var(--code-bg);
+        padding: 1rem 1.1rem;
+        border-radius: var(--radius);
+        overflow: auto;
+        font-size: 0.85rem;
+        line-height: 1.5;
+      }
+
+      /* ---- navbar (flat coder bar, hex far left) ---- */
+      .navbar {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 1.25rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        font-family: var(--font-mono);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        font-size: 1.05rem;
+        color: var(--heading);
+      }
+      .brand svg { width: 32px; height: 32px; }
+      .navbar .spacer { flex: 1; }
+      .navbar a.nav { color: var(--text-dim); font-size: 0.95rem; }
+      .navbar a.nav:hover { color: var(--accent); text-decoration: none; }
+      .lightswitch {
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--text-dim);
+        border-radius: var(--radius);
+        padding: 0.3rem 0.55rem;
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.85rem;
+      }
+      .lightswitch:hover { color: var(--accent); border-color: var(--accent); }
+
+      .wrap { max-width: 880px; margin: 0 auto; padding: 0 1.25rem; }
+
+      /* ---- hero ---- */
+      .hero { text-align: center; padding: 3.5rem 1.25rem 2.5rem; }
+      .hero svg { width: 96px; height: 96px; }
+      .hero h1 { font-size: 2.4rem; margin: 1rem 0 0.4rem; }
+      .hero p.tagline { font-size: 1.2rem; color: var(--text-dim); margin: 0 auto; max-width: 640px; }
+      .cta { margin-top: 1.6rem; display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+      .btn {
+        display: inline-block;
+        padding: 0.6rem 1.15rem;
+        border-radius: var(--radius);
+        font-weight: 500;
+        border: 1px solid var(--accent);
+      }
+      .btn.primary { background: var(--accent); color: var(--accent-contrast); }
+      .btn.primary:hover { text-decoration: none; opacity: 0.92; }
+      .btn.ghost { color: var(--accent); }
+      .btn.ghost:hover { text-decoration: none; background: var(--code-bg); }
+
+      section { padding: 1.5rem 0; }
+      section h2 { font-size: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; }
+      .families { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+      .card { border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem; background: var(--surface); }
+      .card h3 { margin: 0 0 0.4rem; font-size: 1.1rem; }
+      .card p { margin: 0; color: var(--text-dim); font-size: 0.95rem; }
+
+      footer {
+        border-top: 1px solid var(--border);
+        margin-top: 2rem;
+        padding: 1.5rem 1.25rem 2.5rem;
+        text-align: center;
+        color: var(--text-dim);
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="navbar">
+      <span class="brand">
+        <!-- App hex mark: blue hexagon + white play triangle -->
+        <svg viewBox="0 0 512 512" aria-hidden="true">
+          <defs>
+            <linearGradient id="hx" x1="0.1" y1="0" x2="0.9" y2="1">
+              <stop offset="0" stop-color="#9FC6E8" />
+              <stop offset="0.55" stop-color="#75AADB" />
+              <stop offset="1" stop-color="#2B6CB0" />
+            </linearGradient>
+          </defs>
+          <polygon points="256,50 434.4,153 434.4,359 256,462 77.6,359 77.6,153" fill="url(#hx)" stroke="url(#hx)" stroke-width="28" stroke-linejoin="round" />
+          <polygon points="206,168 206,344 360,256" fill="#fff" stroke="#fff" stroke-width="20" stroke-linejoin="round" />
+        </svg>
+        shinylaunchR
+      </span>
+      <span class="spacer"></span>
+      <a class="nav" href="https://github.com/CTTIR/shinylaunchR#readme">Docs</a>
+      <a class="nav" href="https://github.com/CTTIR/shinylaunchR/releases">Releases</a>
+      <a class="nav" href="https://github.com/CTTIR/shinylaunchR">GitHub</a>
+      <button class="lightswitch" id="lightswitch" title="Toggle light / dark / auto">Auto</button>
+    </nav>
+
+    <header class="hero">
+      <svg viewBox="0 0 512 512" aria-hidden="true">
+        <defs>
+          <linearGradient id="hx2" x1="0.1" y1="0" x2="0.9" y2="1">
+            <stop offset="0" stop-color="#9FC6E8" />
+            <stop offset="0.55" stop-color="#75AADB" />
+            <stop offset="1" stop-color="#2B6CB0" />
+          </linearGradient>
+        </defs>
+        <polygon points="256,50 434.4,153 434.4,359 256,462 77.6,359 77.6,153" fill="url(#hx2)" stroke="url(#hx2)" stroke-width="28" stroke-linejoin="round" />
+        <polygon points="206,168 206,344 360,256" fill="#fff" stroke="#fff" stroke-width="20" stroke-linejoin="round" />
+      </svg>
+      <h1>shinylaunchR</h1>
+      <p class="tagline">
+        A cross-platform desktop <strong>launchpad for R/Shiny apps</strong>. Click a tile and the
+        app opens in its own native window while R runs headless in the background.
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/CTTIR/shinylaunchR/releases">Download</a>
+        <a class="btn ghost" href="https://github.com/CTTIR/shinylaunchR#readme">Read the guide</a>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section>
+        <p>
+          shinylaunchR shows a grid of app tiles grouped into three families. It is <strong>not</strong>
+          an R package — it is an Electron application that <em>manages</em> R as a subprocess,
+          detecting R on your system or downloading a managed copy from CRAN.
+        </p>
+      </section>
+
+      <section>
+        <h2>Three app families</h2>
+        <div class="families">
+          <div class="card">
+            <h3>Packages</h3>
+            <p>A Shiny app shipped as an R package (CRAN or a GitHub repo). You name the package and
+            its launcher function; tiles use the package's real hex logo when it has one.</p>
+          </div>
+          <div class="card">
+            <h3>Shiny apps</h3>
+            <p>Non-package Shiny files — an uploaded <code>.zip</code>, a local folder, a zip URL, a
+            gist, or a GitHub source repo. Staged privately and run with <code>shiny::runApp()</code>.</p>
+          </div>
+          <div class="card">
+            <h3>Hosted URLs</h3>
+            <p>A Shiny app already running somewhere (shinyapps.io, Connect, …). Paste the
+            <code>https://</code> address; nothing is installed.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Install</h2>
+        <p>
+          Download the installer for your platform from the
+          <a href="https://github.com/CTTIR/shinylaunchR/releases">Releases page</a> and run it. The
+          app ships unsigned by default, so your OS may show a first-launch warning you can click
+          past. See the <a href="https://github.com/CTTIR/shinylaunchR#readme">README</a> and the
+          <a href="https://github.com/CTTIR/shinylaunchR/blob/main/docs/getting-started.md">getting-started guide</a>.
+        </p>
+      </section>
+
+      <section>
+        <h2>Citation</h2>
+        <p>If you use shinylaunchR in your work, please cite it:</p>
+        <pre><code>@software{heller_shinylaunchr_2026,
+  author  = {Heller, Raban},
+  title   = {{shinylaunchR}: A cross-platform desktop launchpad for {R}/{Shiny} apps},
+  year    = {2026},
+  version = {0.1.0},
+  url     = {https://github.com/cttir/shinylaunchR},
+  note    = {ORCID: 0000-0001-8006-9742},
+  license = {Apache-2.0}
+}</code></pre>
+      </section>
+
+      <section>
+        <h2>License &amp; legal</h2>
+        <p>
+          Licensed under the <a href="https://github.com/CTTIR/shinylaunchR/blob/main/LICENSE">Apache License 2.0</a>
+          — Copyright © 2026 Raban Heller
+          (<a href="https://orcid.org/0000-0001-8006-9742">ORCID 0000-0001-8006-9742</a>). See
+          <a href="https://github.com/CTTIR/shinylaunchR/blob/main/NOTICE">NOTICE</a>,
+          <a href="https://github.com/CTTIR/shinylaunchR/blob/main/THIRD_PARTY_LICENSES.md">third-party licenses</a>, and
+          <a href="https://github.com/CTTIR/shinylaunchR/blob/main/PRIVACY.md">privacy</a> (no telemetry; all data local).
+        </p>
+        <p style="font-size: 0.9rem; color: var(--text-dim)">
+          shinylaunchR is an independent open-source project, not affiliated with or endorsed by
+          Posit Software, PBC (RStudio), the R Foundation, or the maintainers of Shiny. “R”,
+          “RStudio”, “Posit”, and “Shiny” are trademarks of their respective owners.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      Part of the
+      <a href="https://cttir.github.io/website/">CTTIR</a> suite ·
+      <span style="font-weight: 600">shinylaunchR</span> ·
+      Apache-2.0
+    </footer>
+
+    <script>
+      // Light/dark/auto toggle, mirroring the themakR light switch.
+      (function () {
+        var modes = ['auto', 'light', 'dark'];
+        var labels = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+        var btn = document.getElementById('lightswitch');
+        var root = document.documentElement;
+        var saved = null;
+        try { saved = localStorage.getItem('slr-theme'); } catch (e) {}
+        if (saved && modes.indexOf(saved) !== -1) {
+          root.setAttribute('data-theme', saved);
+          btn.textContent = labels[saved];
+        }
+        btn.addEventListener('click', function () {
+          var cur = root.getAttribute('data-theme') || 'auto';
+          var next = modes[(modes.indexOf(cur) + 1) % modes.length];
+          root.setAttribute('data-theme', next);
+          btn.textContent = labels[next];
+          try { localStorage.setItem('slr-theme', next); } catch (e) {}
+        });
+      })();
+    </script>
+  </body>
+</html>
