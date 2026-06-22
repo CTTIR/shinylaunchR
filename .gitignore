@@ -9,3 +9,7 @@ release/
 .audit/
 coverage/
 .vite/
+*.tmp
+*~
+*.bak
+*.orig
