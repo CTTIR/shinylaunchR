@@ -1,0 +1,33 @@
+{
+  "upload_type": "software",
+  "title": "shinylaunchR: Cross-platform desktop launchpad for R and Shiny applications",
+  "version": "0.1.0",
+  "publication_date": "2026-08-11",
+  "description": "<p>shinylaunchR is a desktop launcher that presents R and Shiny applications as a grid of tiles and opens each one in its own native window while R runs in the background. Applications are grouped into three families: those shipped as R packages, those consisting of loose Shiny source files supplied as an archive, folder, gist or source repository, and those already hosted at a web address. Package tiles use the package's own logo where one exists, and locally supplied applications are staged into a private directory before being run. It is aimed at researchers and teams who want to distribute Shiny tools to colleagues who do not work from an R console.</p>",
+  "creators": [
+    {
+      "name": "Heller, Raban"
+    }
+  ],
+  "contributors": [],
+  "license": "apache-2.0",
+  "access_right": "open",
+  "language": "eng",
+  "keywords": [
+    "shiny",
+    "desktop-application",
+    "launcher",
+    "reproducible-research",
+    "scaffolding",
+    "rstats"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/CTTIR/shinylaunchR",
+      "relation": "isSupplementTo",
+      "scheme": "url",
+      "resource_type": "software"
+    }
+  ],
+  "notes": "Prepared draft. Not yet published."
+}

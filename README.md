@@ -1,5 +1,7 @@
 # shinylaunchR <img src="resources/icon.png" align="right" height="120" alt="shinylaunchR hex logo" />
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21889984.svg)](https://doi.org/10.5281/zenodo.21889984)
+
 A cross-platform desktop **launchpad for R/Shiny apps**. You see a grid of app
 tiles grouped into three families — **Packages**, **Shiny apps**, and **Hosted
 URLs** — each ending in its own **`+` tile**. Click a tile and the app opens in

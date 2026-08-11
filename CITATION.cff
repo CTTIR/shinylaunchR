@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+type: software
+title: 'shinylaunchR: Cross-platform desktop launchpad for R and Shiny applications'
+version: 0.1.0
+date-released: '2026-08-11'
+doi: 10.5281/zenodo.21889984
+authors:
+- family-names: Heller
+  given-names: Raban
+repository-code: https://github.com/CTTIR/shinylaunchR
+license: Apache-2.0
