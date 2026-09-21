@@ -23,6 +23,11 @@ if (smokeRoot) {
       'Smoke root must be an existing absolute temporary directory.',
     );
   app.setPath('userData', path.join(smokeRoot, 'user-data'));
+  if (process.platform === 'linux') {
+    // Xvfb has no hardware compositor; use the CPU frame path in isolated QA.
+    app.disableHardwareAcceleration();
+    app.commandLine.appendSwitch('ozone-platform', 'x11');
+  }
 }
 protocol.registerSchemesAsPrivileged([
   {
@@ -75,6 +80,11 @@ async function loadDashboard(win: BrowserWindow): Promise<void> {
 async function smoke(win: BrowserWindow, ctx: AppContext): Promise<void> {
   const checks: Record<string, unknown> = {};
   try {
+    checks.graphics = {
+      softwareRenderingRequested: process.platform === 'linux',
+      ozonePlatform: app.commandLine.getSwitchValue('ozone-platform'),
+      features: app.getGPUFeatureStatus(),
+    };
     checks.dashboard = await win.webContents.executeJavaScript(
       '({bridge:typeof window.shinylaunchR?.listApps === "function",node:typeof window.require,root:!!document.querySelector("#root")})',
     );

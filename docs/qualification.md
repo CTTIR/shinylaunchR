@@ -4,7 +4,7 @@ Candidate: **0.2.0-rc.1**, assessed 2026-09-21. This is not a signed final relea
 
 ## Executed checks
 
-Application revisions are exercised by [the three-platform qualification workflow](https://github.com/CTTIR/shinylaunchR/actions/workflows/check.yml). Consult each job result and its downloadable receipts for the exact runner, architecture, checks and outcomes. The pipeline runs types, lint, regression tests, fresh CRAN and pak libraries, a real Shiny HTTP lifecycle, packaging/fuse verification, and sandboxed renderer checks. Native process tests run on their respective platforms; platform-specific skips are reported.
+Application revisions are exercised by [the three-platform qualification workflow](https://github.com/CTTIR/shinylaunchR/actions/workflows/check.yml). Consult each job result and its downloadable receipts for the exact runner, architecture, checks and outcomes. The pipeline runs types, lint, regression tests, fresh CRAN and pak libraries, a real Shiny HTTP lifecycle, packaging/fuse verification, and sandboxed renderer checks. Native process tests run on their respective platforms; platform-specific skips are reported. Linux smoke uses X11 software rendering on the virtual display; this preserves sandboxing and native keyboard input but does not certify every GPU/driver combination.
 
 Local Linux validation passed 224 regression tests; four default-suite skips cover two opt-in R integration tests and two Windows-native tests. Separate real-R integration passed. The Debian package was installed over 0.1.0; the installed application archive matched the tested build, and the installed executable passed sandboxed checks.
 

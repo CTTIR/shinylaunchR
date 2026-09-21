@@ -28,6 +28,8 @@ jobs:
       - name: Unit and regression tests
         timeout-minutes: 10
         run: npx vitest run --reporter=default --reporter=json --outputFile=.qualification/unit-tests.json
+      - name: Install R for isolated integration checks
+        uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2
       - run: npm run package:dir
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -56,8 +58,6 @@ jobs:
         run: node scripts/smoke-packaged.mjs --auto
         env:
           SLR_SMOKE_RECEIPT: .qualification/packaged-smoke.json
-      - name: Install R for isolated integration checks
-        uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2
       - name: Install native R build requirements (Linux)
         if: runner.os == 'Linux'
         timeout-minutes: 5
