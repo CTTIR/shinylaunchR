@@ -57,12 +57,15 @@ export async function packagedUiChecks(win: BrowserWindow, root: string): Promis
       .then(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{clearTimeout(timeout);resolve(true)})));
   })`);
   await until(`(()=>{
-    const hex=getComputedStyle(document.documentElement).getPropertyValue('--bg-elev').trim();
-    if(!/^#[0-9a-f]{6}$/i.test(hex))throw new Error('Unexpected theme surface token');
-    const rgb='rgb('+[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)).join(', ')+')';
+    const palette=getComputedStyle(document.documentElement);
+    const expected=tile=>{
+      const hex=palette.getPropertyValue(tile.matches(':hover')?'--bg-elev-2':'--bg-elev').trim();
+      if(!/^#[0-9a-f]{6}$/i.test(hex))throw new Error('Unexpected theme surface token');
+      return 'rgb('+[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)).join(', ')+')';
+    };
     return document.documentElement.dataset.theme===${JSON.stringify(theme)} &&
       !document.getAnimations().some(a=>a.playState==='running') &&
-      Array.from(document.querySelectorAll('.tile')).every(tile=>getComputedStyle(tile).backgroundColor===rgb);
+      Array.from(document.querySelectorAll('.tile')).every(tile=>getComputedStyle(tile).backgroundColor===expected(tile));
   })()`);
   await axe(`${theme}:dashboard`);
   for (const label of ['Add app', 'Settings', 'Help']) {
