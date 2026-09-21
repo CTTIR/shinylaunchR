@@ -59,6 +59,7 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
 linux:
+  syncDesktopName: true
   icon: resources/icon.png
   category: Development
   maintainer: Raban Heller <raban.heller@outlook.com>

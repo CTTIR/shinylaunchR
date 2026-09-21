@@ -57,5 +57,6 @@
   },
   "engines": {
     "node": ">=24 <25"
-  }
+  },
+  "desktopName": "shinylaunchr.desktop"
 }

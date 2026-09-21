@@ -16,7 +16,7 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 function image(): string {
-  const file = path.join(dir, 'logo #?.png');
+  const file = path.join(dir, 'logo #%.png');
   fs.writeFileSync(file, 'fake image');
   return file;
 }

@@ -52,6 +52,12 @@ jobs:
         run: npx vitest run --reporter=default --reporter=json --outputFile=.qualification/unit-tests.json
       - name: Install R for isolated integration checks
         uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2
+      - name: Install native R build requirements (Linux)
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libuv1-dev libcurl4-openssl-dev libssl-dev
       - name: Fresh CRAN and pak libraries and real Shiny lifecycle
         timeout-minutes: 22
         run: npx vitest run test/integration-r.test.ts --reporter=default --reporter=json --outputFile=.qualification/real-r.json

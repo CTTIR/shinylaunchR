@@ -2,11 +2,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { it, expect, vi } from 'vitest';
+import { it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { logger } from '../src/main/logger';
+import type { LogEvent } from '../src/shared/types';
 import { RRuntimeManager } from '../src/main/r-runtime';
 import { installPackage, installSourceDeps } from '../src/main/installer';
 import { ShinySupervisor } from '../src/main/shiny-supervisor';
 import { DEFAULT_SETTINGS, type AppEntry } from '../src/shared/types';
+const integrationLog = (event: LogEvent) => {
+  if (event.scope === 'installer') console.log(event.message);
+};
+beforeAll(() => {
+  if (process.env.SLR_RUN_R_INTEGRATION === '1') logger.on('log', integrationLog);
+});
+afterAll(() => { logger.off('log', integrationLog); });
+
 it.skipIf(process.env.SLR_RUN_R_INTEGRATION !== '1')(
   'installs CRAN praise into a fresh managed library and runs/stops real Shiny',
   async () => {

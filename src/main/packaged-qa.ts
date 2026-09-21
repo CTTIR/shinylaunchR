@@ -69,10 +69,34 @@ export async function packagedCredentialCheck(root: string): Promise<Record<stri
   if (process.platform !== 'linux' || !process.env.XDG_DATA_HOME ||
       !fs.realpathSync(process.env.XDG_DATA_HOME).startsWith(fs.realpathSync(root) + path.sep) ||
       !process.env.DBUS_SESSION_BUS_ADDRESS) throw new Error('Credential smoke requires Linux with a private D-Bus session and XDG_DATA_HOME inside the smoke root.');
+  const phase = process.env.SLR_SMOKE_CREDENTIAL_PHASE ?? 'all';
+  if (!['all', 'store', 'restore'].includes(phase))
+    throw new Error('SLR_SMOKE_CREDENTIAL_PHASE must be all, store or restore.');
   const directory = path.join(root, 'synthetic-credentials');
-  fs.mkdirSync(directory);
+  fs.mkdirSync(directory, { recursive: true });
+  const file = path.join(directory, 'credentials.json');
   const legacy = process.env.SLR_SMOKE_LEGACY === '1' ? createLegacyBackend() : undefined;
   const token = 'smoke-only-test-token-1234';
+  const restored = new CredentialStore(directory, safeStorage);
+  if (phase === 'restore') {
+    // A second process only reads the encrypted fixture. It must never recreate it.
+    if (!fs.existsSync(file)) throw new Error('Encrypted restart fixture is missing.');
+    if (legacy && await legacy.getPassword('shinylaunchR', 'github-pat') !== null)
+      throw new Error('Legacy fixture unexpectedly exists after migration.');
+    const roundTrip = (await restored.getToken()) === token;
+    const status = await restored.status();
+    const plaintextAbsent = !fs.readFileSync(file, 'utf8').includes(token);
+    if (status.backend !== 'safeStorage' || !roundTrip || !plaintextAbsent)
+      throw new Error('Synthetic credential process-restart restoration failed.');
+    await restored.remove();
+    const removed = (await new CredentialStore(directory, safeStorage).getToken()) === null;
+    if (!removed) throw new Error('Restored synthetic credential removal failed.');
+    return { status: 'verified', phase, pid: process.pid, backend: status.backend,
+      roundTrip, plaintextAbsent, removed, legacyRemoved: legacy ? true : null,
+      scope: 'Existing encrypted fixture restored in this process and removed; pair with the prior store-phase receipt.' };
+  }
+  if (phase === 'store' && fs.existsSync(file))
+    throw new Error('Store phase requires a fresh synthetic credential directory.');
   // Check the fixture before allowing migration to remove an OS credential.
   if (legacy && await legacy.getPassword('shinylaunchR', 'github-pat') !== token)
     throw new Error('Isolated legacy credential fixture is missing or unexpected.');
@@ -81,15 +105,19 @@ export async function packagedCredentialCheck(root: string): Promise<Record<stri
   const status = legacy ? await store.status() : await store.set(token);
   const legacyRemoved = legacy ? await legacy.getPassword('shinylaunchR', 'github-pat') === null : null;
   if (legacy && !legacyRemoved) throw new Error('Synthetic legacy credential was not removed.');
-  const restored = new CredentialStore(directory, safeStorage);
   if (status.backend !== 'safeStorage') {
-    if (fs.existsSync(path.join(directory, 'credentials.json'))) throw new Error('Unavailable encryption persisted a token.');
-    return { status: 'unavailable', backend: status.backend, sessionOnly: (await store.getToken()) === token, restartEmpty: (await restored.getToken()) === null };
+    if (fs.existsSync(file)) throw new Error('Unavailable encryption persisted a token.');
+    if (phase === 'store') throw new Error('Store phase requires available native encryption.');
+    return { status: 'unavailable', phase, pid: process.pid, backend: status.backend, sessionOnly: (await store.getToken()) === token, restartEmpty: (await restored.getToken()) === null };
   }
   const roundTrip = (await restored.getToken()) === token;
-  const plaintextAbsent = !fs.readFileSync(path.join(directory, 'credentials.json'), 'utf8').includes(token);
+  const plaintextAbsent = !fs.readFileSync(file, 'utf8').includes(token);
+  if (!roundTrip || !plaintextAbsent) throw new Error('Synthetic credential encryption/restoration failed.');
+  if (phase === 'store') return { status: 'verified', phase, pid: process.pid,
+    backend: status.backend, roundTrip, plaintextAbsent, legacyRemoved, persisted: true,
+    scope: 'Encrypted synthetic fixture retained for a separate restore-phase process.' };
   await restored.remove();
   const removed = (await new CredentialStore(directory, safeStorage).getToken()) === null;
-  if (!roundTrip || !plaintextAbsent || !removed) throw new Error('Synthetic credential encryption/restoration/removal failed.');
-  return { status: 'verified', backend: status.backend, roundTrip, plaintextAbsent, removed, legacyRemoved, scope: 'Synthetic token with fresh store instances; full OS/process relaunch not assessed.' };
+  if (!removed) throw new Error('Synthetic credential removal failed.');
+  return { status: 'verified', phase, pid: process.pid, backend: status.backend, roundTrip, plaintextAbsent, removed, legacyRemoved, scope: 'Synthetic token with fresh store instances; full OS/process relaunch not assessed.' };
 }

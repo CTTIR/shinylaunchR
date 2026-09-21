@@ -23,7 +23,8 @@ export function writeAtomicJson(filePath: string, value: unknown): void {
       try {
         JSON.parse(fs.readFileSync(filePath, 'utf8'));
         fs.copyFileSync(filePath, backupTemp, fs.constants.COPYFILE_EXCL);
-        const backupFd = fs.openSync(backupTemp, 'r');
+        // Windows FlushFileBuffers requires a write-capable handle.
+        const backupFd = fs.openSync(backupTemp, 'r+');
         try {
           fs.fsyncSync(backupFd);
         } finally {

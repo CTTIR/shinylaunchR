@@ -66,3 +66,14 @@ it('does not overwrite valid recovery state with schema-invalid JSON', () => {
     good: true,
   });
 });
+
+it('opens the recovery copy writable before flushing it', () => {
+  const file = path.join(dir, 'state.json');
+  writeAtomicJson(file, { version: 1 });
+  const open = vi.spyOn(fs, 'openSync');
+  writeAtomicJson(file, { version: 2 });
+  expect(open.mock.calls.some(([name, flags]) =>
+    String(name).endsWith('.bak.tmp') && flags === 'r+',
+  )).toBe(true);
+  expect(JSON.parse(fs.readFileSync(`${file}.bak`, 'utf8'))).toEqual({ version: 1 });
+});
