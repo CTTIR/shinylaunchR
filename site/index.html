@@ -67,8 +67,8 @@
       </svg>
       <h1>shinylaunchR</h1>
       <p class="tagline">
-        A cross-platform desktop <strong>launchpad for R/Shiny apps</strong>. Click a tile and the
-        app opens in its own native window while R runs headless in the background.
+        A cross-platform desktop <strong>launchpad for R/Shiny apps</strong>. Click a tile to select it; double-click or press Enter to
+        launch it in its own native window. Local apps run R headless in the background.
       </p>
       <div class="cta">
         <a class="btn primary" href="https://github.com/CTTIR/shinylaunchR/releases">Download</a>
@@ -77,11 +77,12 @@
     </header>
 
     <main class="wrap">
+      <p class="note">0.2.0-rc.1 is an unpublished candidate. Windows, macOS and Linux are build targets; consult the repository qualification record before distribution.</p>
       <section>
         <p>
           shinylaunchR shows a grid of app tiles grouped into three families. It is <strong>not</strong>
           an R package — it is an Electron application that <em>manages</em> R as a subprocess,
-          detecting R on your system or downloading a managed copy from CRAN.
+          detecting a separately installed R ≥ 4.2 on your system. Managed R downloads are not offered.
         </p>
       </section>
 
@@ -111,19 +112,19 @@
         <p>
           Download the installer for your platform from the
           <a href="https://github.com/CTTIR/shinylaunchR/releases">Releases page</a> and run it. The
-          app ships unsigned by default, so your OS may show a first-launch warning you can click
-          past. New here? Read the <a href="getting-started.html">getting-started guide</a>.
+          app ships unsigned by default, so your OS may show a first-launch warning. Unsigned status
+          is not evidence of safety. New here? Read the <a href="getting-started.html">getting-started guide</a>.
         </p>
       </section>
 
       <section>
         <h2>Citation</h2>
-        <p>If you use shinylaunchR in your work, please cite it:</p>
+        <p>The following DOI identifies the prior published archive. The current 0.2.0-rc.1 candidate is unpublished; cite its exact revision separately.</p>
         <pre><code>@software{heller_shinylaunchr_2026,
   author  = {Heller, Raban},
   title   = {{shinylaunchR}: A cross-platform desktop launchpad for {R}/{Shiny} apps},
   year    = {2026},
-  version = {0.1.0},
+  doi     = {10.5281/zenodo.21889984},
   url     = {https://github.com/cttir/shinylaunchR},
   license = {Apache-2.0}
 }</code></pre>
@@ -137,7 +138,7 @@
           (<a href="https://orcid.org/0000-0001-8006-9742">ORCID 0000-0001-8006-9742</a>). See
           <a href="https://github.com/CTTIR/shinylaunchR/blob/main/NOTICE">NOTICE</a>,
           <a href="https://github.com/CTTIR/shinylaunchR/blob/main/THIRD_PARTY_LICENSES.md">third-party licenses</a>, and
-          <a href="https://github.com/CTTIR/shinylaunchR/blob/main/PRIVACY.md">privacy</a> (no telemetry; all data local).
+          <a href="https://github.com/CTTIR/shinylaunchR/blob/main/PRIVACY.md">privacy</a> (no application telemetry; installed apps and hosted sites can transmit data).
         </p>
         <p style="font-size: 0.9rem; color: var(--text-dim)">
           shinylaunchR is an independent open-source project, not affiliated with or endorsed by

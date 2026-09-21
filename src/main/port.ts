@@ -24,14 +24,20 @@ export function getFreePort(host = '127.0.0.1'): Promise<number> {
         const { port } = addr;
         server.close(() => resolve(port));
       } else {
-        server.close(() => reject(new Error('Could not determine a free port')));
+        server.close(() =>
+          reject(new Error('Could not determine a free port')),
+        );
       }
     });
   });
 }
 
 /** True if `port` on `host` is currently accepting TCP connections. */
-export function isPortOpen(port: number, host = '127.0.0.1', timeoutMs = 1000): Promise<boolean> {
+export function isPortOpen(
+  port: number,
+  host = '127.0.0.1',
+  timeoutMs = 1000,
+): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let settled = false;
@@ -63,6 +69,7 @@ export async function findFreePortInRange(
 }
 
 export interface WaitOptions {
+  signal?: AbortSignal;
   host?: string;
   timeoutMs?: number;
   intervalMs?: number;
@@ -89,13 +96,17 @@ export function httpProbe(port: number, host: string): Promise<boolean> {
   });
 }
 
-const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const defaultSleep = (ms: number) =>
+  new Promise<void>((r) => setTimeout(r, ms));
 
 /**
  * Poll until an HTTP server answers on the port, or the timeout elapses.
  * Returns true on ready, false on timeout.
  */
-export async function waitForPort(port: number, options: WaitOptions = {}): Promise<boolean> {
+export async function waitForPort(
+  port: number,
+  options: WaitOptions = {},
+): Promise<boolean> {
   const host = options.host ?? '127.0.0.1';
   const timeoutMs = options.timeoutMs ?? 60_000;
   const intervalMs = options.intervalMs ?? 400;
@@ -104,10 +115,10 @@ export async function waitForPort(port: number, options: WaitOptions = {}): Prom
   const now = options.now ?? Date.now;
 
   const deadline = now() + timeoutMs;
-  while (now() < deadline) {
-    if (await probe(port, host)) return true;
+  while (now() < deadline && !options.signal?.aborted) {
+    if (await probe(port, host)) return !options.signal?.aborted;
     await sleep(intervalMs);
   }
   // one last probe right at the boundary
-  return probe(port, host);
+  return options.signal?.aborted ? false : probe(port, host);
 }

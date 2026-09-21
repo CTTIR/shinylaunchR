@@ -62,7 +62,9 @@ describe('waitForPort', () => {
     const port = (server.address() as { port: number }).port;
     try {
       expect(await httpProbe(port, '127.0.0.1')).toBe(true);
-      expect(await waitForPort(port, { timeoutMs: 2000, intervalMs: 50 })).toBe(true);
+      expect(await waitForPort(port, { timeoutMs: 2000, intervalMs: 50 })).toBe(
+        true,
+      );
     } finally {
       server.close();
     }

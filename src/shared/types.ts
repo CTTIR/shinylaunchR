@@ -27,7 +27,8 @@ export const NAME_REGEX = /^[A-Za-z.][A-Za-z0-9._]*$/;
 export const PKG_REGEX = /^[A-Za-z][A-Za-z0-9.]*$/;
 
 /** A GitHub "org/repo" or "org/repo@ref" spec. */
-export const REPO_REGEX = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(@[A-Za-z0-9_./-]+)?$/;
+export const REPO_REGEX =
+  /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(@[A-Za-z0-9_./-]+)?$/;
 
 /** A GitHub gist id (hex/alphanumeric). */
 export const GIST_REGEX = /^[A-Za-z0-9]+$/;
@@ -51,7 +52,8 @@ export function isValidGist(value: string): boolean {
 /** True only for a syntactically valid https:// URL (no http/file/etc.). */
 export function isValidHttpsUrl(value: string): boolean {
   try {
-    return new URL(value).protocol === 'https:';
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password;
   } catch {
     return false;
   }
@@ -68,7 +70,13 @@ export function isSafeRelPath(value: string): boolean {
   if (norm.startsWith('/') || /^[A-Za-z]:/.test(norm)) return false;
   return norm
     .split('/')
-    .every((seg) => seg !== '' && seg !== '.' && seg !== '..' && /^[A-Za-z0-9._-]+$/.test(seg));
+    .every(
+      (seg) =>
+        seg !== '' &&
+        seg !== '.' &&
+        seg !== '..' &&
+        /^[A-Za-z0-9._-]+$/.test(seg),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -114,9 +122,9 @@ export interface AppEntry {
   source: AppSource;
   iconPath?: string; // cached resolved icon (png/svg)
   installed: boolean; // package present / source staged & deps ready / url (always)
+  libraryPath?: string; // managed library identity at successful install
   stagedPath?: string; // server-managed: resolved app dir for the SHINY FILE family
   fixedPort?: number; // optional; default = auto
-  frameless?: boolean; // launched window chrome preference
   createdAt: string;
   lastLaunchedAt?: string;
 }
@@ -129,7 +137,6 @@ export interface AppEntryInput {
   source: AppSource;
   iconPath?: string;
   fixedPort?: number;
-  frameless?: boolean;
 }
 
 export type RegistryFile = {
@@ -141,7 +148,15 @@ export type RegistryFile = {
 // App runtime status (computed; not persisted)
 // ---------------------------------------------------------------------------
 
-export type AppRunState = 'not-installed' | 'installing' | 'ready' | 'running' | 'error';
+export type AppRunState =
+  | 'not-installed'
+  | 'queued'
+  | 'installing'
+  | 'launching'
+  | 'stopping'
+  | 'ready'
+  | 'running'
+  | 'error';
 
 export interface AppStatus {
   id: string;
@@ -164,21 +179,6 @@ export interface RStatus {
   source?: 'managed' | 'system' | 'custom';
   message?: string;
 }
-
-export interface RSourceEntry {
-  url: string;
-  sha256?: string;
-  kind: 'zip' | 'tar.gz' | 'pkg' | 'exe';
-}
-
-export type RSourcesConfig = {
-  defaultVersion: string;
-  platforms: {
-    [platformKey: string]: {
-      [version: string]: RSourceEntry;
-    };
-  };
-};
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -218,7 +218,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 export interface CredentialStatus {
   present: boolean;
   last4?: string;
-  backend: 'keytar' | 'unavailable';
+  backend: 'safeStorage' | 'session' | 'unavailable';
 }
 
 export interface TokenTestResult {
@@ -258,6 +258,7 @@ export interface OkResult {
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 
 export interface LogEvent {
+  displayId?: number;
   ts: string;
   level: LogLevel;
   scope: string; // e.g. "installer", "shiny", appId
@@ -291,7 +292,6 @@ export const IPC = {
   pickFolder: 'pick:folder',
   // R runtime
   rStatus: 'r:status',
-  rBootstrap: 'r:bootstrap',
   rPointTo: 'r:pointTo',
   rOpenLibrary: 'r:openLibrary',
   // settings
@@ -320,9 +320,6 @@ export type MenuCommand =
   | 'edit-selected'
   | 'reinstall-selected'
   | 'remove-selected'
-  | 'launch-selected'
-  | 'stop-selected'
-  | 'stop-all'
   | 'toggle-log'
   | 'open-r-panel'
   | 'open-settings'
@@ -368,7 +365,6 @@ export interface ShinyLaunchAPI {
   pickFolder(): Promise<string | undefined>;
 
   rStatus(): Promise<RStatus>;
-  rBootstrap(): Promise<RStatus>;
   rPointTo(): Promise<RStatus>;
   rOpenLibrary(): Promise<OkResult>;
 

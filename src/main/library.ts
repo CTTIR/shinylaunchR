@@ -17,6 +17,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { assertInside } from './safe-path';
 import { isValidPkg } from '@shared/types';
 
 export interface LibFs {
@@ -33,10 +34,16 @@ export interface RemoveResult {
 }
 
 /** A package is corrupt if its directory exists but has no DESCRIPTION manifest. */
-export function isCorruptInstall(lib: string, pkg: string, fsLike: LibFs = fs): boolean {
+export function isCorruptInstall(
+  lib: string,
+  pkg: string,
+  fsLike: LibFs = fs,
+): boolean {
   if (!isValidPkg(pkg)) return false;
   const dir = path.join(lib, pkg);
-  return fsLike.existsSync(dir) && !fsLike.existsSync(path.join(dir, 'DESCRIPTION'));
+  return (
+    fsLike.existsSync(dir) && !fsLike.existsSync(path.join(dir, 'DESCRIPTION'))
+  );
 }
 
 /** Names of stale R lock directories currently in `lib` (anything `00LOCK*`). */
@@ -48,9 +55,16 @@ export function staleLocks(lib: string, fsLike: LibFs = fs): string[] {
   }
 }
 
-function tryRemove(target: string, label: string, fsLike: LibFs, acc: RemoveResult): void {
+function tryRemove(
+  root: string,
+  target: string,
+  label: string,
+  fsLike: LibFs,
+  acc: RemoveResult,
+): void {
   if (!fsLike.existsSync(target)) return;
   try {
+    assertInside(root, target);
     fsLike.rmSync(target, { recursive: true, force: true });
     acc.removed.push(label);
   } catch {
@@ -64,13 +78,17 @@ function tryRemove(target: string, label: string, fsLike: LibFs, acc: RemoveResu
  * untouched for pak/install.packages to replace in place — so a reinstall never
  * destroys a working copy just because the new build might later fail.
  */
-export function cleanForReinstall(lib: string, pkg: string, fsLike: LibFs = fs): RemoveResult {
+export function cleanForReinstall(
+  lib: string,
+  pkg: string,
+  fsLike: LibFs = fs,
+): RemoveResult {
   const acc: RemoveResult = { removed: [], failed: [] };
   for (const lock of staleLocks(lib, fsLike)) {
-    tryRemove(path.join(lib, lock), lock, fsLike, acc);
+    tryRemove(lib, path.join(lib, lock), lock, fsLike, acc);
   }
   if (isCorruptInstall(lib, pkg, fsLike)) {
-    tryRemove(path.join(lib, pkg), pkg, fsLike, acc);
+    tryRemove(lib, path.join(lib, pkg), pkg, fsLike, acc);
   }
   return acc;
 }
@@ -80,10 +98,14 @@ export function cleanForReinstall(lib: string, pkg: string, fsLike: LibFs = fs):
  * Only the named package is removed — shared dependencies are deliberately left
  * in place so deleting one app cannot break another.
  */
-export function removeInstalledPackage(lib: string, pkg: string, fsLike: LibFs = fs): RemoveResult {
+export function removeInstalledPackage(
+  lib: string,
+  pkg: string,
+  fsLike: LibFs = fs,
+): RemoveResult {
   const acc: RemoveResult = { removed: [], failed: [] };
   if (!isValidPkg(pkg)) return acc;
-  tryRemove(path.join(lib, pkg), pkg, fsLike, acc);
-  tryRemove(path.join(lib, `00LOCK-${pkg}`), `00LOCK-${pkg}`, fsLike, acc);
+  tryRemove(lib, path.join(lib, pkg), pkg, fsLike, acc);
+  tryRemove(lib, path.join(lib, `00LOCK-${pkg}`), `00LOCK-${pkg}`, fsLike, acc);
   return acc;
 }

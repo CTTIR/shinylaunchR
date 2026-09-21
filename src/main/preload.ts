@@ -23,7 +23,8 @@ const api: ShinyLaunchAPI = {
   listApps: () => ipcRenderer.invoke(IPC.listApps),
   addApp: (input: AppEntryInput) => ipcRenderer.invoke(IPC.addApp, input),
   updateApp: (id, input) => ipcRenderer.invoke(IPC.updateApp, id, input),
-  removeApp: (id, alsoUninstall) => ipcRenderer.invoke(IPC.removeApp, id, alsoUninstall),
+  removeApp: (id, alsoUninstall) =>
+    ipcRenderer.invoke(IPC.removeApp, id, alsoUninstall),
   exportRegistry: () => ipcRenderer.invoke(IPC.exportRegistry),
   importRegistry: () => ipcRenderer.invoke(IPC.importRegistry),
 
@@ -39,12 +40,12 @@ const api: ShinyLaunchAPI = {
   pickFolder: () => ipcRenderer.invoke(IPC.pickFolder),
 
   rStatus: () => ipcRenderer.invoke(IPC.rStatus),
-  rBootstrap: () => ipcRenderer.invoke(IPC.rBootstrap),
   rPointTo: () => ipcRenderer.invoke(IPC.rPointTo),
   rOpenLibrary: () => ipcRenderer.invoke(IPC.rOpenLibrary),
 
   getSettings: () => ipcRenderer.invoke(IPC.getSettings),
-  setSettings: (patch: Partial<AppSettings>) => ipcRenderer.invoke(IPC.setSettings, patch),
+  setSettings: (patch: Partial<AppSettings>) =>
+    ipcRenderer.invoke(IPC.setSettings, patch),
   openUserData: () => ipcRenderer.invoke(IPC.openUserData),
   clearIconCache: () => ipcRenderer.invoke(IPC.clearIconCache),
 

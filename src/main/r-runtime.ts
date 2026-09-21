@@ -4,21 +4,17 @@
  */
 
 /**
- * R Runtime Manager: locate / version-check / (best-effort) bootstrap a managed
- * R installation. The pure helpers (version parsing, path resolution) are
+ * R Runtime Manager: locate and version-check a selected R installation. The pure helpers (version parsing, path resolution) are
  * exported separately so they can be unit-tested against a mocked filesystem,
  * with no real R required.
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import { spawn, type SpawnOptions } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import type { RStatus, RSourcesConfig } from '@shared/types';
-import { logger } from './logger';
-import sourcesJson from './r-sources.json';
-
-export const R_SOURCES = sourcesJson as unknown as RSourcesConfig;
+import { ProcessManager } from './process-manager';
+import { RUNTIME_SCRIPT } from './r-scripts';
+import { writeAtomicJson } from './atomic-store';
+import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
+import type { RStatus } from '@shared/types';
 
 export interface FsLike {
   existsSync(p: string): boolean;
@@ -50,7 +46,10 @@ export function meetsMinimum(version: string, minimum = '4.2.0'): boolean {
 }
 
 /** Candidate Rscript locations inside a managed runtime dir, per platform. */
-export function managedRscriptCandidates(runtimeDir: string, platform: NodeJS.Platform): string[] {
+export function managedRscriptCandidates(
+  runtimeDir: string,
+  platform: NodeJS.Platform,
+): string[] {
   if (platform === 'win32') {
     return [
       path.join(runtimeDir, 'bin', 'x64', 'Rscript.exe'),
@@ -72,30 +71,9 @@ export function resolveManagedRscript(
   platform: NodeJS.Platform,
   fsLike: FsLike = fs,
 ): string | undefined {
-  return managedRscriptCandidates(runtimeDir, platform).find((p) => fsLike.existsSync(p));
-}
-
-export function platformKey(platform: NodeJS.Platform, arch: string): string {
-  return `${platform}-${arch}`;
-}
-
-/** Reject any managed-R download source that is not plain https. */
-export function assertHttpsSource(url: string): string {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    throw new Error(`invalid R source URL: ${url}`);
-  }
-  if (u.protocol !== 'https:') throw new Error(`R source must be https: ${url}`);
-  return u.href;
-}
-
-/** Verify a downloaded payload against an expected SHA-256 (hex). */
-export function verifySha256(data: Buffer, expectedHex: string): boolean {
-  if (!expectedHex) return false;
-  const actual = createHash('sha256').update(data).digest('hex');
-  return actual.toLowerCase() === expectedHex.toLowerCase();
+  return managedRscriptCandidates(runtimeDir, platform).find((p) =>
+    fsLike.existsSync(p),
+  );
 }
 
 export type Spawner = (
@@ -112,6 +90,7 @@ export interface RuntimeDeps {
   spawner?: Spawner;
   /** Override Rscript discovery on PATH (returns absolute path or undefined). */
   systemRscript?: () => string | undefined;
+  processes?: ProcessManager;
 }
 
 /** Locate `Rscript` on PATH by scanning PATH dirs for the executable. */
@@ -121,7 +100,9 @@ export function findSystemRscript(
   fsLike: FsLike = fs,
 ): string | undefined {
   const exe = platform === 'win32' ? 'Rscript.exe' : 'Rscript';
-  const dirs = (env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  const dirs = (env.PATH ?? '')
+    .split(platform === 'win32' ? ';' : ':')
+    .filter(Boolean);
   for (const dir of dirs) {
     const candidate = path.join(dir, exe);
     if (fsLike.existsSync(candidate)) return candidate;
@@ -129,159 +110,215 @@ export function findSystemRscript(
   // Common fixed locations
   const fixed =
     platform === 'darwin'
-      ? ['/Library/Frameworks/R.framework/Resources/bin/Rscript', '/usr/local/bin/Rscript']
+      ? [
+          '/Library/Frameworks/R.framework/Resources/bin/Rscript',
+          '/opt/homebrew/bin/Rscript',
+          '/usr/local/bin/Rscript',
+          path.join(env.HOME ?? '', '.local/share/rig/bin/Rscript'),
+        ]
       : platform === 'win32'
-        ? []
+        ? windowsRLocations(env)
         : ['/usr/bin/Rscript', '/usr/local/bin/Rscript'];
   return fixed.find((p) => fsLike.existsSync(p));
 }
 
-export class RRuntimeManager {
-  private readonly platform: NodeJS.Platform;
-  private readonly arch: string;
-  private readonly fsLike: FsLike;
-  private readonly spawner: Spawner;
-  private readonly systemRscript: () => string | undefined;
-  private customRscript: string | undefined;
-
-  constructor(private readonly deps: RuntimeDeps) {
-    this.platform = deps.platform ?? process.platform;
-    this.arch = deps.arch ?? process.arch;
-    this.fsLike = deps.fsLike ?? fs;
-    this.spawner = deps.spawner ?? spawn;
-    this.systemRscript =
-      deps.systemRscript ?? (() => findSystemRscript(this.platform, process.env, this.fsLike));
+function windowsRLocations(env: NodeJS.ProcessEnv): string[] {
+  const out: string[] = [];
+  for (const base of [
+    path.join(env.ProgramFiles ?? 'C:/Program Files', 'R'),
+    path.join(env.LOCALAPPDATA ?? '', 'Programs', 'R'),
+  ]) {
+    try {
+      for (const folder of fs.readdirSync(base).sort().reverse())
+        out.push(
+          path.join(base, folder, 'bin', 'Rscript.exe'),
+          path.join(base, folder, 'bin', 'x64', 'Rscript.exe'),
+        );
+    } catch {
+      /* absent */
+    }
   }
+  if (process.platform === 'win32') {
+    const result = spawnSync(
+      'reg',
+      ['query', 'HKLM\\SOFTWARE\\R-core\\R', '/v', 'InstallPath'],
+      { encoding: 'utf8', timeout: 2000, windowsHide: true },
+    );
+    const match = result.stdout?.match(/InstallPath\s+REG_SZ\s+(.+)/);
+    if (match) out.unshift(path.join(match[1]!.trim(), 'bin', 'Rscript.exe'));
+  }
+  return out;
+}
 
+export class RRuntimeManager {
+  readonly processes: ProcessManager;
+  private customRscript?: string;
+  private verified?: {
+    rPath: string;
+    source: 'managed' | 'system' | 'custom';
+    version: string;
+    arch: string;
+  };
+  private pending?: Promise<typeof this.verified>;
+  private generation = 0;
+  private platform: NodeJS.Platform;
+  private fsLike: FsLike;
+  constructor(private deps: RuntimeDeps) {
+    this.platform = deps.platform ?? process.platform;
+    this.fsLike = deps.fsLike ?? fs;
+    this.processes =
+      deps.processes ??
+      new ProcessManager(
+        path.join(deps.userDataDir, 'processes'),
+        deps.spawner ?? spawn,
+      );
+    try {
+      const data = JSON.parse(
+        fs.readFileSync(path.join(deps.userDataDir, 'runtime.json'), 'utf8'),
+      ) as { path?: unknown };
+      if (typeof data.path === 'string' && path.isAbsolute(data.path))
+        this.customRscript = data.path;
+    } catch {
+      /* no selection */
+    }
+  }
   get runtimeDir(): string {
     return path.join(this.deps.userDataDir, 'r-runtime');
   }
-
   get libraryPath(): string {
-    return path.join(this.runtimeDir, 'library');
+    const version =
+      this.verified?.version.split('.').slice(0, 2).join('.') ?? 'unresolved';
+    const arch = (
+      this.verified?.arch ??
+      this.deps.arch ??
+      process.arch
+    ).replace(/[^A-Za-z0-9_-]/g, '_');
+    return path.join(this.runtimeDir, 'library', `${version}-${arch}`);
   }
-
-  /** Point the manager at a user-chosen Rscript (the "use existing R" flow). */
-  setCustomRscript(rscriptPath: string | undefined): void {
-    this.customRscript = rscriptPath;
-  }
-
-  /** Resolve the Rscript to use, in priority order: managed > custom > system. */
-  resolveRscript(): { rPath: string; source: 'managed' | 'system' | 'custom' } | undefined {
-    const managed = resolveManagedRscript(this.runtimeDir, this.platform, this.fsLike);
-    if (managed) return { rPath: managed, source: 'managed' };
-    if (this.customRscript && this.fsLike.existsSync(this.customRscript)) {
-      return { rPath: this.customRscript, source: 'custom' };
-    }
-    const sys = this.systemRscript();
-    if (sys) return { rPath: sys, source: 'system' };
-    return undefined;
-  }
-
-  /** Run `Rscript --version` and parse the version. */
-  async queryVersion(rscriptPath: string): Promise<string | undefined> {
-    return new Promise((resolve) => {
-      let out = '';
-      try {
-        const child = this.spawner(rscriptPath, ['--version'], {
-          stdio: ['ignore', 'pipe', 'pipe'],
-          windowsHide: true,
-        });
-        child.stdout?.on('data', (d) => (out += d.toString()));
-        child.stderr?.on('data', (d) => (out += d.toString()));
-        child.on('error', () => resolve(undefined));
-        child.on('close', () => resolve(parseRVersion(out)));
-      } catch {
-        resolve(undefined);
-      }
+  setCustomRscript(value: string | undefined): void {
+    if (value && (!path.isAbsolute(value) || !fs.statSync(value).isFile()))
+      throw new Error('Select an existing Rscript executable.');
+    writeAtomicJson(path.join(this.deps.userDataDir, 'runtime.json'), {
+      path: value,
     });
+    this.generation++;
+    this.customRscript = value;
+    this.verified = undefined;
+    this.pending = undefined;
   }
-
-  /** Build the full status object the UI displays. */
-  async status(): Promise<RStatus> {
+  resolveRscript():
+    | { rPath: string; source: 'managed' | 'system' | 'custom' }
+    | undefined {
+    if (this.customRscript)
+      return this.fsLike.existsSync(this.customRscript)
+        ? { rPath: this.customRscript, source: 'custom' }
+        : undefined;
+    const managed = resolveManagedRscript(
+      this.runtimeDir,
+      this.platform,
+      this.fsLike,
+    );
+    if (managed) return { rPath: managed, source: 'managed' };
+    const sys =
+      this.deps.systemRscript?.() ??
+      (this.deps.systemRscript
+        ? undefined
+        : findSystemRscript(this.platform, process.env, this.fsLike));
+    return sys ? { rPath: sys, source: 'system' } : undefined;
+  }
+  async queryVersion(rPath: string): Promise<string | undefined> {
+    const child = this.processes.start(rPath, ['--version'], {
+      owner: 'runtime',
+      timeoutMs: this.platform === 'win32' ? 30_000 : 10_000,
+    });
+    const result = await child.done;
+    return result.code === 0
+      ? parseRVersion(result.stdout + result.stderr)
+      : undefined;
+  }
+  async ready(signal?: AbortSignal): Promise<typeof this.verified> {
+    if (signal?.aborted) throw new Error('Operation cancelled.');
     const resolved = this.resolveRscript();
-    if (!resolved) {
+    if (!resolved) return undefined;
+    if (this.verified?.rPath === resolved.rPath) return this.verified;
+    if (!this.pending) {
+      const generation = this.generation;
+      const pending = (async () => {
+        const child = this.processes.startScript(
+          resolved.rPath,
+          RUNTIME_SCRIPT,
+          { owner: 'runtime', timeoutMs: this.platform === 'win32' ? 30_000 : 10_000 },
+        );
+        const result = await child.done;
+        const match = result.stdout.match(
+          /^SLR_RUNTIME:([0-9.]+):([A-Za-z0-9_-]+)$/m,
+        );
+        if (
+          result.error ||
+          result.code !== 0 ||
+          !match ||
+          !meetsMinimum(match[1]!)
+        )
+          throw new Error(
+            'Rscript must run R ≥ 4.2. Select a supported R installation.',
+          );
+        const verified = { ...resolved, version: match[1]!, arch: match[2]! };
+        // A runtime switch cannot adopt a stale verification result.
+        if (
+          this.generation !== generation ||
+          this.resolveRscript()?.rPath !== resolved.rPath
+        )
+          throw new Error(
+            'R runtime changed during verification; retry the operation.',
+          );
+        this.verified = verified;
+        return verified;
+      })().finally(() => {
+        if (this.pending === pending) this.pending = undefined;
+      });
+      this.pending = pending;
+    }
+    const result = await this.pending;
+    if (signal?.aborted) throw new Error('Operation cancelled.');
+    return result;
+  }
+  async status(): Promise<RStatus> {
+    try {
+      const resolved = await this.ready();
+      if (!resolved)
+        return {
+          found: false,
+          managed: false,
+          libraryPath: this.libraryPath,
+          message:
+            'R not found. Install R ≥ 4.2 and point to its Rscript executable.',
+        };
+      return {
+        found: true,
+        managed: resolved.source === 'managed',
+        ...resolved,
+        libraryPath: this.libraryPath,
+      };
+    } catch (e) {
       return {
         found: false,
         managed: false,
         libraryPath: this.libraryPath,
-        message: 'R not found. Bootstrap a managed R or install R ≥ 4.2.',
+        message: String(e),
       };
     }
-    const version = await this.queryVersion(resolved.rPath);
-    const ok = version ? meetsMinimum(version) : false;
-    return {
-      found: true,
-      managed: resolved.source === 'managed',
-      rPath: resolved.rPath,
-      version,
-      libraryPath: this.libraryPath,
-      source: resolved.source,
-      message: version
-        ? ok
-          ? undefined
-          : `Detected R ${version}; shinylaunchR targets R ≥ 4.2.`
-        : 'Found Rscript but could not determine its version.',
-    };
   }
-
-  /** Ensure the managed library directory exists; returns its path. */
   ensureLibrary(): string {
     fs.mkdirSync(this.libraryPath, { recursive: true });
     return this.libraryPath;
   }
-
-  /**
-   * Best-effort managed-R bootstrap. Network/extraction is intentionally not
-   * implemented as a hard dependency: if a download source is missing we throw
-   * a descriptive error so the UI can fall back to "install R yourself".
-   */
-  async bootstrap(): Promise<RStatus> {
-    const key = platformKey(this.platform, this.arch);
-    const perPlatform = R_SOURCES.platforms[key];
-    const version = R_SOURCES.defaultVersion;
-    const entry = perPlatform?.[version];
-    this.ensureLibrary();
-    if (!entry || !entry.url) {
-      const msg =
-        `No managed R download is configured for ${key} (R ${version}). ` +
-        `Install R ≥ 4.2 and use "Point to existing R", or add a source to r-sources.json.`;
-      logger.warn('r-runtime', msg);
-      throw new Error(msg);
-    }
-    // Never fetch a managed-R binary over a non-https source, and require a
-    // checksum to be present before any (future) download/extract is attempted.
-    assertHttpsSource(entry.url);
-    if (!entry.sha256) {
-      throw new Error(
-        `R source for ${key} has no sha256 checksum; refusing to download an unverified binary.`,
-      );
-    }
-    // A real implementation downloads `entry.url`, verifies `entry.sha256`,
-    // and extracts into `this.runtimeDir`. That is deliberately left as a
-    // runtime feature behind this clear boundary so the app builds and runs
-    // without network access. See README "R runtime".
-    logger.warn(
-      'r-runtime',
-      `Managed-R download from ${entry.url} is not performed in this build; ` +
-        `falling back to system R detection.`,
-    );
-    throw new Error(
-      'Automated managed-R download is not enabled in this build. ' +
-        'Please install R ≥ 4.2 and use "Point to existing R".',
-    );
-  }
-
-  /** Default child-process environment with the managed library on R_LIBS_USER. */
   childEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
-    return {
+    const env: NodeJS.ProcessEnv = {
       ...process.env,
-      R_LIBS_USER: this.libraryPath,
-      ...extra,
+      R_LIBS_USER: this.ensureLibrary(),
     };
-  }
-
-  homeTempHint(): string {
-    return os.tmpdir();
+    delete env.GITHUB_PAT;
+    delete env.GH_TOKEN;
+    return { ...env, ...extra };
   }
 }

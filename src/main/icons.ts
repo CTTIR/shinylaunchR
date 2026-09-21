@@ -1,138 +1,99 @@
-/*
- * Copyright 2026 Raban Heller
- * SPDX-License-Identifier: Apache-2.0
- */
-
-/**
- * Resolve, extract and cache a package's icon.
- *
- * Priority: (1) user-supplied file at registration, (2) a logo inside the
- * installed package (pkgdown/hex convention), (3) fall back to a generated
- * monogram tile rendered by the renderer (so this module just returns
- * undefined). Cached files live under `userData/icons/<id>.<ext>`.
- */
+/* Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0 */
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn, type SpawnOptions } from 'node:child_process';
 import { isValidPkg, type AppEntry } from '@shared/types';
-import { logger } from './logger';
 import type { RRuntimeManager } from './r-runtime';
-
+import { ICON_SCRIPT } from './r-scripts';
+import { assertInside } from './safe-path';
 const ALLOWED_EXT = new Set(['.png', '.svg', '.jpg', '.jpeg', '.gif', '.ico']);
-
+const NAME = /^(user-)?[a-f0-9-]{36}\.(png|svg|jpg|jpeg|gif|ico)$/;
 export class IconManager {
-  constructor(
-    private readonly cacheDir: string,
-    private readonly spawner: (
-      cmd: string,
-      args: string[],
-      options: SpawnOptions,
-    ) => ReturnType<typeof spawn> = spawn,
-  ) {}
-
-  private ensureDir(): void {
+  constructor(readonly cacheDir: string) {}
+  copyUserIcon(srcPath: string, id: string, user = true): string | undefined {
+    if (!/^[a-f0-9-]{36}$/.test(id))
+      throw new Error('Invalid icon identifier.');
+    const ext = path.extname(srcPath).toLowerCase();
+    if (!ALLOWED_EXT.has(ext)) throw new Error('Unsupported image format.');
+    if (
+      !fs.statSync(srcPath).isFile() ||
+      fs.statSync(srcPath).size > 5 * 1024 * 1024
+    )
+      throw new Error('Icon must be a file smaller than 5 MiB.');
     fs.mkdirSync(this.cacheDir, { recursive: true });
+    const target = assertInside(
+      this.cacheDir,
+      path.join(this.cacheDir, `${user ? 'user-' : ''}${id}${ext}`),
+    );
+    if (path.resolve(srcPath) !== target) fs.copyFileSync(srcPath, target);
+    return target;
   }
-
-  /** Copy a user-chosen icon file into the cache; returns the cached path. */
-  copyUserIcon(srcPath: string, id: string): string | undefined {
+  url(file: string | undefined): string | undefined {
+    if (!file) return undefined;
     try {
-      const ext = path.extname(srcPath).toLowerCase();
-      if (!ALLOWED_EXT.has(ext)) {
-        logger.warn('icons', `Unsupported icon type: ${ext}`);
+      const target = assertInside(this.cacheDir, file);
+      if (!NAME.test(path.basename(target)) || !fs.existsSync(target))
         return undefined;
-      }
-      this.ensureDir();
-      const dest = path.join(this.cacheDir, `${id}${ext}`);
-      fs.copyFileSync(srcPath, dest);
-      return dest;
-    } catch (err) {
-      logger.error('icons', `Failed to copy icon: ${String(err)}`);
+      return `slr-icon://cache/${encodeURIComponent(path.basename(target))}`;
+    } catch {
       return undefined;
     }
   }
-
-  /**
-   * Ask R for a logo inside the installed package, copy it into the cache.
-   * Returns the cached path, or undefined if none found / R unavailable.
-   */
-  async resolvePackageIcon(entry: AppEntry, runtime: RRuntimeManager): Promise<string | undefined> {
+  resolveUrl(value: string): string {
+    const u = new URL(value);
+    const name = decodeURIComponent(u.pathname.slice(1));
+    if (
+      u.protocol !== 'slr-icon:' ||
+      u.hostname !== 'cache' ||
+      u.search ||
+      u.hash ||
+      !NAME.test(name)
+    )
+      throw new Error('Invalid icon URL.');
+    return assertInside(this.cacheDir, path.join(this.cacheDir, name));
+  }
+  async resolvePackageIcon(
+    entry: AppEntry,
+    runtime: RRuntimeManager,
+    signal?: AbortSignal,
+  ): Promise<string | undefined> {
     if (!entry.pkg || !isValidPkg(entry.pkg)) return undefined;
-    const resolved = runtime.resolveRscript();
+    const resolved = await runtime.ready(signal);
     if (!resolved) return undefined;
-
-    const script = [
-      `pkg <- "${entry.pkg}"`,
-      `cands <- c(`,
-      `  system.file("figures","logo.png",package=pkg),`,
-      `  system.file("figures","logo.svg",package=pkg),`,
-      `  system.file("man","figures","logo.png",package=pkg),`,
-      `  system.file("man","figures","logo.svg",package=pkg),`,
-      `  system.file("www","logo.png",package=pkg)`,
-      `)`,
-      `hit <- cands[nzchar(cands) & file.exists(cands)]`,
-      `if (length(hit) > 0) cat(hit[1])`,
-    ].join('\n');
-
-    const found = await new Promise<string | undefined>((resolve) => {
-      let out = '';
-      try {
-        const child = this.spawner(resolved.rPath, ['--vanilla', '-e', script], {
-          env: runtime.childEnv(),
-          stdio: ['ignore', 'pipe', 'ignore'],
-          windowsHide: true,
-        });
-        child.stdout?.on('data', (d) => (out += d.toString()));
-        child.on('error', () => resolve(undefined));
-        child.on('close', () => resolve(out.trim() || undefined));
-      } catch {
-        resolve(undefined);
-      }
+    const child = runtime.processes.startScript(resolved.rPath, ICON_SCRIPT, {
+      owner: entry.id,
+      env: runtime.childEnv({ SLR_PACKAGE: entry.pkg }),
+      signal,
+      timeoutMs: 10000,
     });
-
-    if (!found || !fs.existsSync(found)) return undefined;
-    return this.copyUserIcon(found, entry.id);
+    const result = await child.done;
+    const file = result.stdout.trim();
+    if (result.code !== 0 || result.error || !file || !fs.existsSync(file))
+      return undefined;
+    return this.copyUserIcon(file, entry.id, false);
   }
-
-  /**
-   * Look for a logo bundled inside a staged SHINY FILE app directory (the common
-   * `www/` and pkgdown `man/figures/` conventions) and cache it. Returns the
-   * cached path, or undefined if none is present. Pure filesystem — no R needed.
-   */
   resolveSourceIcon(appDir: string, id: string): string | undefined {
-    const candidates = [
-      path.join(appDir, 'www', 'logo.png'),
-      path.join(appDir, 'www', 'logo.svg'),
-      path.join(appDir, 'man', 'figures', 'logo.png'),
-      path.join(appDir, 'man', 'figures', 'logo.svg'),
-    ];
-    const hit = candidates.find((p) => {
-      try {
-        return fs.existsSync(p);
-      } catch {
-        return false;
-      }
-    });
-    return hit ? this.copyUserIcon(hit, id) : undefined;
-  }
-
-  /** Remove every cached icon file. */
-  clearCache(): number {
-    try {
-      if (!fs.existsSync(this.cacheDir)) return 0;
-      const entries = fs.readdirSync(this.cacheDir);
-      let n = 0;
-      for (const f of entries) {
-        try {
-          fs.unlinkSync(path.join(this.cacheDir, f));
-          n++;
-        } catch {
-          // ignore
-        }
-      }
-      return n;
-    } catch {
-      return 0;
+    for (const rel of [
+      'www/logo.png',
+      'www/logo.svg',
+      'man/figures/logo.png',
+      'man/figures/logo.svg',
+    ]) {
+      const file = assertInside(appDir, path.join(appDir, rel));
+      if (fs.existsSync(file)) return this.copyUserIcon(file, id, false);
     }
+    return undefined;
+  }
+  clearCache(): number {
+    let n = 0;
+    fs.mkdirSync(this.cacheDir, { recursive: true });
+    for (const name of fs.readdirSync(this.cacheDir))
+      if (NAME.test(name) && !name.startsWith('user-')) {
+        fs.rmSync(assertInside(this.cacheDir, path.join(this.cacheDir, name)), {
+          force: true,
+        });
+        n++;
+      }
+    return n;
   }
 }

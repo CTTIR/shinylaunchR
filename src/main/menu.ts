@@ -20,7 +20,10 @@ import {
 import { IPC, type MenuCommand } from '@shared/types';
 import type { AppContext } from './context';
 
-export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null): Menu {
+export function buildMenu(
+  ctx: AppContext,
+  getWindow: () => BrowserWindow | null,
+): Menu {
   const isMac = process.platform === 'darwin';
   const isDev = !app.isPackaged;
 
@@ -36,7 +39,10 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
   const selEntry = selId ? ctx.registry.get(selId) : undefined;
   const selRunning = selId ? ctx.supervisor.isRunning(selId) : false;
   const hasSelection = Boolean(selEntry);
-  const canLaunch = Boolean(selEntry?.installed) && !selRunning;
+  const busy = ['queued', 'installing', 'launching', 'stopping'].includes(
+    ctx.statuses().find((s) => s.id === selId)?.state ?? '',
+  );
+  const canLaunch = Boolean(selEntry?.installed) && !selRunning && !busy;
   const anyRunning = ctx.anyRunning();
 
   const template: MenuItemConstructorOptions[] = [];
@@ -47,7 +53,11 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
       submenu: [
         { label: 'About shinylaunchR', click: () => dispatch('open-about') },
         { type: 'separator' },
-        { label: 'Settings…', accelerator: 'Cmd+,', click: () => dispatch('open-settings') },
+        {
+          label: 'Settings…',
+          accelerator: 'Cmd+,',
+          click: () => dispatch('open-settings'),
+        },
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
@@ -61,7 +71,11 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
   template.push({
     label: 'File',
     submenu: [
-      { label: 'Add App…', accelerator: 'CmdOrCtrl+N', click: () => dispatch('add-app') },
+      {
+        label: 'Add App…',
+        accelerator: 'CmdOrCtrl+N',
+        click: () => dispatch('add-app'),
+      },
       { type: 'separator' },
       { label: 'Import Registry…', click: () => void ctx.importRegistry() },
       { label: 'Export Registry…', click: () => void ctx.exportRegistry() },
@@ -81,10 +95,14 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
       },
       {
         label: 'Reinstall / Update App',
-        enabled: hasSelection,
+        enabled: hasSelection && !busy,
         click: () => dispatch('reinstall-selected'),
       },
-      { label: 'Remove App…', enabled: hasSelection, click: () => dispatch('remove-selected') },
+      {
+        label: 'Remove App…',
+        enabled: hasSelection,
+        click: () => dispatch('remove-selected'),
+      },
       { type: 'separator' },
       { role: 'cut' },
       { role: 'copy' },
@@ -110,10 +128,14 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
         enabled: selRunning,
         click: () => {
           const id = selected();
-          if (id) ctx.stop(id);
+          if (id) void ctx.stop(id);
         },
       },
-      { label: 'Stop all running', enabled: anyRunning, click: () => ctx.stopAll() },
+      {
+        label: 'Stop all running',
+        enabled: anyRunning,
+        click: () => void ctx.stopAll(),
+      },
     ],
   });
 
@@ -146,8 +168,10 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
     label: 'R Runtime',
     submenu: [
       { label: 'Show R status…', click: () => dispatch('open-r-panel') },
-      { label: 'Bootstrap / Re-bootstrap managed R', click: () => void ctx.rBootstrap() },
-      { label: 'Point to existing R installation…', click: () => void ctx.rPointTo() },
+      {
+        label: 'Point to existing R installation…',
+        click: () => void ctx.rPointTo(),
+      },
       { label: 'Open R library folder', click: () => void ctx.rOpenLibrary() },
     ],
   });
@@ -156,7 +180,6 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
     label: 'Settings',
     submenu: [
       { label: 'General…', click: () => dispatch('open-settings') },
-      { label: 'Sources…', click: () => dispatch('open-settings') },
       { type: 'separator' },
       { label: 'Open data folder', click: () => void ctx.openUserData() },
       { label: 'Clear icon cache', click: () => ctx.clearIconCache() },
@@ -165,7 +188,12 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
 
   template.push({
     label: 'Credentials',
-    submenu: [{ label: 'Manage GitHub Token…', click: () => dispatch('open-credentials') }],
+    submenu: [
+      {
+        label: 'Manage GitHub Token…',
+        click: () => dispatch('open-credentials'),
+      },
+    ],
   });
 
   const repo = 'https://github.com/cttir/shinylaunchR';
@@ -187,13 +215,23 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
       // without intruding on the dashboard. The disabled item is a subheader.
       { label: 'Version, Legal & License', enabled: false },
       { label: 'Version / About', click: () => dispatch('open-about') },
-      { label: 'Legal Notices & Attribution', click: () => void shell.openExternal(`${repo}/blob/main/NOTICE`) },
-      { label: 'Reference Documentation', click: () => void shell.openExternal(`${repo}#readme`) },
+      {
+        label: 'Legal Notices & Attribution',
+        click: () => void shell.openExternal(`${repo}/blob/main/NOTICE`),
+      },
+      {
+        label: 'Reference Documentation',
+        click: () => void shell.openExternal(`${repo}#readme`),
+      },
       {
         label: 'Third-Party Licenses',
-        click: () => void shell.openExternal(`${repo}/blob/main/THIRD_PARTY_LICENSES.md`),
+        click: () =>
+          void shell.openExternal(`${repo}/blob/main/THIRD_PARTY_LICENSES.md`),
       },
-      { label: 'License (Apache-2.0)', click: () => void shell.openExternal(`${repo}/blob/main/LICENSE`) },
+      {
+        label: 'License (Apache-2.0)',
+        click: () => void shell.openExternal(`${repo}/blob/main/LICENSE`),
+      },
       { type: 'separator' },
       { label: 'About', click: () => dispatch('open-about') },
     ],
@@ -202,6 +240,9 @@ export function buildMenu(ctx: AppContext, getWindow: () => BrowserWindow | null
   return Menu.buildFromTemplate(template);
 }
 
-export function installMenu(ctx: AppContext, getWindow: () => BrowserWindow | null): void {
+export function installMenu(
+  ctx: AppContext,
+  getWindow: () => BrowserWindow | null,
+): void {
   Menu.setApplicationMenu(buildMenu(ctx, getWindow));
 }

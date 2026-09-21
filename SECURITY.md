@@ -1,57 +1,15 @@
-# Security Policy
+# Security
 
-## Reporting a vulnerability
+Report suspected vulnerabilities privately through the repository's GitHub security reporting facility when available, or to the maintainer at raban.heller@outlook.com. Include a minimal reproduction and affected version; do not include real credentials or private datasets in public issues.
 
-If you discover a security issue in shinylaunchR, please report it privately
-rather than opening a public issue:
+The unpublished 0.2.0-rc.1 candidate is undergoing qualification. Platform, credential-store, packaged-app, signing and screen-reader qualification remains pending.
 
-- Use GitHub's **[Report a vulnerability](https://github.com/cttir/shinylaunchR/security/advisories/new)**
-  (Security → Advisories) on the repository, or
-- Email the maintainer: **raban.heller@outlook.com** (subject:
-  `shinylaunchR security`).
+Electron renderers use context isolation, no Node integration and sandboxing. Privileged operations are exposed through a limited preload bridge, with main-process validation of arguments and sender identity. Permission requests are denied by default. Local app navigation is constrained by origin; hosted HTTPS pages remain remote content and can contact external services.
 
-Please include the version, your OS, reproduction steps, and the impact you
-observed. We aim to acknowledge reports within a few days and to address
-confirmed, in-scope issues in a timely follow-up release. Please allow a
-reasonable period for a fix before public disclosure.
+Imported app specifications are untrusted. Registry normalization, managed-path checks, bounded downloads/extraction and transactional staging reduce specific attack and failure paths. They do not make an arbitrary R package or source app safe. R code executes as the user, can read local files and can make network requests; shared libraries do not isolate apps from each other.
 
-## Scope
+Tokens use Electron safeStorage when an OS backend is available; Linux basic_text is rejected. Stored tokens and recognized token forms are registered for log redaction. Redaction cannot guarantee confidentiality of transformed, encoded or application-specific secrets. Local account compromise defeats this boundary.
 
-In scope: the Electron application itself — the main process, the preload bridge,
-IPC validation, process spawning, credential handling, and the packaged build.
+Packaged binaries disable RunAsNode, NODE_OPTIONS and CLI inspection with Electron fuses. ASAR-only loading and embedded integrity are enabled; integrity checking is supported by Electron on Windows/macOS. Packaging excludes sourcemaps. macOS entitlements retain JIT only, pending signed-app qualification. Neither fuses nor code signing establish that installed R code is trustworthy.
 
-Out of scope: vulnerabilities in **R**, **Shiny**, or the R packages a user
-chooses to install (report those upstream), and in third-party hosted apps a user
-registers.
-
-## Security posture (summary)
-
-shinylaunchR is built with a defensive posture, verified in a dedicated audit:
-
-- **Renderer isolation** — every `BrowserWindow` runs with `contextIsolation:
-  true`, `nodeIntegration: false`, `sandbox: true`, and `webSecurity: true`. The
-  renderer reaches privileged operations only through a minimal, typed
-  `contextBridge` API in the preload script.
-- **Validated IPC** — every IPC argument is validated in the main process.
-  Package, function, and repo names are checked against strict allow-list
-  regexes.
-- **No shell injection** — R is spawned with an argument array (never a shell
-  string); the launcher is only ever invoked as a fully-qualified `pkg::fun()`.
-  No `eval`, no `shell: true`, no `exec` with interpolated input.
-- **Navigation guards** — windows cannot navigate away from their own origin;
-  external links open in the system browser, https only.
-- **Credentials** — the GitHub token lives in the OS secure store, is passed to
-  child processes only via a process-scoped env var, and is redacted from all
-  logs. It never crosses to the renderer in plaintext.
-- **Verified downloads** — any managed-R download requires an HTTPS source and a
-  SHA-256 checksum before use.
-
-See `NOTICE`, `PRIVACY.md`, and `docs/dependency-advisories.md` for related
-disclosures.
-
-## Unsigned builds
-
-Release builds are **unsigned** by default, so first launch shows an OS prompt
-(Gatekeeper on macOS, SmartScreen on Windows). This is the OS protecting the
-user, not a defect; see the README for the documented steps. Signing can be
-enabled later via the opt-in CI secrets.
+Only a dated full dependency audit and artifact review support a release assessment. A zero production-only npm audit omits development-classified Electron and bundled React. See [dependency-advisories.md](docs/dependency-advisories.md). Unsigned builds may trigger operating-system warnings and have no signed publisher assurance.

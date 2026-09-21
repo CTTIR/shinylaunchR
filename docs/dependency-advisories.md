@@ -1,53 +1,18 @@
-# Dependency advisories & supply-chain notes
+# Dependency assessment — 2026-09-21
 
-_Last reviewed: 2026-06-16 (Audit 5)._
+The 0.2.0-rc.1 lockfile uses Electron 44.4.3, electron-builder 26.15.3, electron-vite 5.0.0, Vite 7.3.6, Vitest 5.0.1, React 19.3.0, TypeScript 6.0.3 and ESLint 10.11.0. Node 24 is required for development and CI.
 
-## Runtime dependencies
+Versions were resolved from npm registry metadata, then checked with `npm ls`. Vite 7 and plugin-react 5 remain the latest compatible majors with electron-vite 5's declared Vite peer range. TypeScript 7 is outside typescript-eslint's `<6.1` support range, so TypeScript 6 is used. The obsolete ESLint React plugin does not support ESLint 10; TypeScript and React Hooks linting remain enabled with flat configuration.
 
-`npm audit --omit=dev` reports **0 vulnerabilities**. The only runtime
-dependency is `keytar` (MIT) and its `prebuild-install` transitive tree
-(MIT/ISC/BSD). There are **no copyleft (GPL/AGPL) runtime dependencies**, so the
-app's Apache-2.0 license is unaffected. `react`/`react-dom` are dev-only: they are
-bundled into the renderer by Vite, so they are not shipped as `node_modules`.
+The full npm audit and production-only audit both report **zero advisories at this checkpoint** following compatible audit fixes. This is a dated registry result, not a guarantee of vulnerability-free software. Receipts: `audit/2026-09-21/implementation/npm-audit-before.json`, `npm-audit-after.json`, and `npm-audit-production-after.json`. Recheck before release and on dependency/security updates.
 
-## Resolved this audit
+Production-only audit alone is insufficient: Electron and React are declared development dependencies but their runtime and bundled code are shipped. Electron's Chromium/Node components and built artifact require review independently of npm's production dependency tree. keytar is no longer installed or shipped.
 
-- **electron** `^33 → ^42` — clears 18 Electron advisories (ASAR integrity
-  bypass, several use-after-frees, IPC spoofing, origin/permission issues, etc.).
-  This is the security-maintained current major. The app uses only stable APIs
-  (`BrowserWindow`, `ipcMain`, `contextBridge`, `nativeTheme`, `shell`, `dialog`,
-  `Menu`); typecheck/lint/test/build all pass on 42.
-- **electron-builder** `^25 → ^26` — clears the `tar` / `cacache` /
-  `make-fetch-happen` / `node-gyp` / `dmg-builder` / `app-builder-lib` chain.
+Primary compatibility and security guidance:
 
-## Deferred dev-only advisories (documented, justified)
+- [electron-vite migration guide](https://electron-vite.org/guide/migration)
+- [Electron fuses](https://www.electronjs.org/docs/latest/tutorial/fuses)
+- [Electron ASAR integrity](https://www.electronjs.org/docs/latest/tutorial/asar-integrity)
+- [typescript-eslint supported versions](https://typescript-eslint.io/users/dependency-versions/)
 
-The following remain in `npm audit` (full, dev-inclusive). All are **build/test
-tooling only**, not shipped in any installer, and not reachable in how we use
-the tools:
-
-| Advisory | Package | Why deferred |
-|----------|---------|--------------|
-| GHSA-5xrq-8626-4rwp (critical) | `vitest` | Arbitrary file read/exec **only when the Vitest UI server is listening**. Our `test` script is `vitest run` — the UI server is never started. Fix requires `vitest@4`, which needs `vite@6+`. |
-| GHSA-67mh-4wv8-2f99 (high) | `esbuild` | Dev-server SSRF affecting `vite dev` only. No impact on built app or CI. The fix is in `vite@8`, but `electron-vite` (our bundler) peer-caps Vite at `^7`, so it **cannot** be cleared without dropping electron-vite. |
-| moderate | `vite` / `vite-node` / `@vitest/mocker` / `electron-vite` | Same Vite/Vitest chain; dev tooling only. |
-
-**Why not bump the whole bundler chain:** clearing the Vitest/Vite advisories
-would require migrating `electron-vite` `2 → 5`, `vite` `5 → 7`, and
-`vitest` `2 → 4` together — a multi-major bundler migration whose dev-server and
-packaging behaviour cannot be fully validated in CI here — while the headline
-`esbuild` advisory would **still** remain (it needs Vite 8, above
-electron-vite's `^7` cap). Since none of these are exploitable in our usage
-(no `vitest --ui`, no exposed dev server in CI, nothing shipped), we defer the
-migration rather than risk the toolchain.
-
-**Planned follow-up:** revisit when `electron-vite` supports Vite 8 (which
-carries the patched esbuild), then bump the Vite/Vitest/electron-vite trio in one
-deliberate, re-tested step.
-
-## Hygiene
-
-- Lockfile (`package-lock.json`) committed and in sync (`npm ci` succeeds).
-- No unused or phantom dependencies; no wildcard version ranges.
-- No `postinstall`/lifecycle scripts in this repo's `package.json`.
-- `.gitignore` excludes `node_modules/`, `out/`, `dist/`, `release/`, and env files.
+Weekly dependency and action updates are configured. Each update must pass the same typecheck, lint, tests, build, fuse verification and packaged smoke checks. Signed macOS entitlements and real credential-store behavior remain separate qualification requirements.

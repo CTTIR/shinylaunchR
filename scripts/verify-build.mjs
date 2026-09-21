@@ -3,7 +3,7 @@
 // (e.g. type:module + a CJS `require(` entry) crashes the packaged app on
 // launch with "require is not defined in ES module scope". Exit non-zero on any
 // failure.
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, readdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -50,6 +50,10 @@ if (mainFormat === expected) {
       `but ${pkg.main} looks like ${mainFormat}. The packaged app would crash on launch.`,
   );
   ok = false;
+}
+
+for (const file of readdirSync(resolve(root, 'out'), { recursive: true })) {
+  if (String(file).endsWith('.map')) { console.error(`Unexpected shipped sourcemap: ${file}`); ok = false; }
 }
 
 if (!ok) {

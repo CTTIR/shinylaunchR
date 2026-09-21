@@ -3,7 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { appFamily, type AppEntry, type AppRunState, type AppStatus } from '@shared/types';
+import { useEffect, useState } from 'react';
+import {
+  appFamily,
+  type AppEntry,
+  type AppRunState,
+  type AppStatus,
+} from '@shared/types';
 import { HexIcon } from './HexIcon';
 
 function initials(name: string): string {
@@ -14,16 +20,12 @@ function initials(name: string): string {
   return ((first[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase();
 }
 
-/** Convert an absolute filesystem path to a file:// URL usable in <img>. */
-function toFileUrl(p: string): string {
-  let normalized = p.replace(/\\/g, '/');
-  if (!normalized.startsWith('/')) normalized = '/' + normalized;
-  return encodeURI('file://' + normalized);
-}
-
 const STATE_TITLE: Record<AppRunState, string> = {
   'not-installed': 'Not installed',
+  queued: 'Queued…',
   installing: 'Installing…',
+  launching: 'Launching…',
+  stopping: 'Stopping…',
   ready: 'Ready',
   running: 'Running',
   error: 'Error',
@@ -38,8 +40,20 @@ export interface AppTileProps {
   onContextMenu: (e: React.MouseEvent, app: AppEntry) => void;
 }
 
-export function AppTile({ app, status, selected, onSelect, onLaunch, onContextMenu }: AppTileProps) {
+export function AppTile({
+  app,
+  status,
+  selected,
+  onSelect,
+  onLaunch,
+  onContextMenu,
+}: AppTileProps) {
+  const [failedIcon, setFailedIcon] = useState(false);
+  useEffect(() => setFailedIcon(false), [app.iconPath]);
   const state = status?.state ?? (app.installed ? 'ready' : 'not-installed');
+  const busy = ['queued', 'installing', 'launching', 'stopping'].includes(
+    state,
+  );
   const title = `${app.name} — ${STATE_TITLE[state]}${status?.message ? `: ${status.message}` : ''}`;
   // A user/real logo always wins; otherwise a hex whose COLOR signals the family
   // (colored = package, grey = Shiny file / hosted URL) and whose glyph hints the
@@ -54,24 +68,48 @@ export function AppTile({ app, status, selected, onSelect, onLaunch, onContextMe
       tabIndex={0}
       role="button"
       title={title}
+      onFocus={() => onSelect(app.id)}
+      aria-pressed={selected}
       onClick={() => onSelect(app.id)}
-      onDoubleClick={() => onLaunch(app.id)}
+      onDoubleClick={() => {
+        if (!busy) onLaunch(app.id);
+      }}
       onContextMenu={(e) => onContextMenu(e, app)}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
+        if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+          e.preventDefault();
+          const rect = e.currentTarget.getBoundingClientRect();
+          onContextMenu(
+            {
+              preventDefault() {},
+              clientX: rect.left,
+              clientY: rect.bottom,
+            } as React.MouseEvent,
+            app,
+          );
+        }
+        if (e.key === ' ') {
+          e.preventDefault();
+          onSelect(app.id);
+        }
+        if (e.key === 'Enter' && !busy) {
           e.preventDefault();
           onLaunch(app.id);
         }
       }}
       aria-label={`${app.name}, ${STATE_TITLE[state]}`}
     >
-      <span className={`status-dot ${state}`} role="img" aria-label={STATE_TITLE[state]} />
-      {app.iconPath ? (
+      <span
+        className={`status-dot ${state}`}
+        role="img"
+        aria-label={STATE_TITLE[state]}
+      />
+      {app.iconPath?.startsWith('slr-icon://cache/') && !failedIcon ? (
         <img
           className="tile-icon"
-          src={toFileUrl(app.iconPath)}
+          src={app.iconPath}
           alt=""
-          onError={(e) => (e.currentTarget.style.display = 'none')}
+          onError={() => setFailedIcon(true)}
         />
       ) : (
         <HexIcon tone={tone} variant={variant} label={initials(app.name)} />

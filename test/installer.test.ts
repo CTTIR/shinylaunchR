@@ -1,144 +1,182 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
-  buildCranScript,
-  buildGithubScript,
-  buildNamespacesLoadScript,
-  buildSourceInstallScript,
   installPackage,
+  installSourceDeps,
   safeRepos,
 } from '../src/main/installer';
+import { INSTALL_SCRIPT } from '../src/main/r-scripts';
 import { DEFAULT_SETTINGS, type AppEntry } from '@shared/types';
 import type { RRuntimeManager } from '../src/main/r-runtime';
-
-describe('safeRepos', () => {
-  it('accepts clean http(s) mirrors', () => {
-    expect(safeRepos('https://cloud.r-project.org')).toMatch(/^https:\/\/cloud\.r-project\.org/);
-    expect(safeRepos('http://cran.example.org/')).toMatch(/^http:\/\//);
-  });
-
-  it('rejects non-URLs', () => {
-    expect(() => safeRepos('not a url')).toThrow();
-  });
-
-  it('rejects non-http protocols', () => {
-    expect(() => safeRepos('file:///etc/passwd')).toThrow();
-    expect(() => safeRepos('javascript:alert(1)')).toThrow();
-  });
-
-  it('rejects injection attempts that would break the R string', () => {
-    // a quote/paren payload must never survive into the R source
-    expect(() => safeRepos('https://x"); system("rm -rf /"); ("')).toThrow();
-  });
-});
-
-describe('install script builders', () => {
-  it('rejects invalid package and repo names', () => {
-    expect(() => buildCranScript('bad;name', '/lib', 'https://x')).toThrow();
-    expect(() => buildGithubScript('not-a-repo', 'pkg', '/lib', 'https://x', true)).toThrow();
-    expect(() => buildGithubScript('org/repo', 'bad;name', '/lib', 'https://x', true)).toThrow();
-  });
-
-  it('CRAN fallback installs the full dependency tree and gates on load', () => {
-    const s = buildCranScript('molpathR', '/lib', 'https://cloud.r-project.org');
-    expect(s).toContain('install.packages("molpathR"');
-    expect(s).toContain('dependencies = TRUE');
-    expect(s).toContain('requireNamespace("molpathR"');
-    expect(s).toContain('INSTALL_OK');
-  });
-
-  it('CRAN with pak preferred resolves the tree via pak', () => {
-    const s = buildCranScript('molpathR', '/lib', 'https://cloud.r-project.org', true);
-    expect(s).toContain('pak::pkg_install("molpathR"');
-    expect(s).toContain('dependencies = TRUE');
-  });
-
-  it('GitHub via pak installs the tree into the managed lib', () => {
-    const s = buildGithubScript('cttir/zhncommandR', 'zhncommandR', '/lib', 'https://x', true);
-    expect(s).toContain('pak::pkg_install("cttir/zhncommandR"');
-    expect(s).toContain('lib = lib');
-    expect(s).toContain('dependencies = TRUE');
-    expect(s).toContain('requireNamespace("zhncommandR"');
-  });
-
-  it('GitHub remotes fallback pulls Suggests and never upgrades', () => {
-    const s = buildGithubScript('cttir/zhncommandR', 'zhncommandR', '/lib', 'https://x', false);
-    expect(s).toContain('remotes::install_github("cttir/zhncommandR"');
-    expect(s).toContain('dependencies = TRUE');
-    expect(s).toContain('upgrade = "never"');
-  });
-
-  it('runs installs under a one-shot lock-cleanup retry (Windows move/AV resilience)', () => {
-    // pak path: the actual install call still runs, now wrapped by the retry
-    const pak = buildGithubScript('cttir/zhncommandR', 'zhncommandR', '/lib', 'https://x', true);
-    expect(pak).toContain('.slr_install(function() pak::pkg_install("cttir/zhncommandR"');
-    expect(pak).toContain('00LOCK');
-    expect(pak).toContain('Sys.sleep');
-    // CRAN install.packages and remotes fallbacks are wrapped too
-    expect(buildCranScript('molpathR', '/lib', 'https://x')).toContain(
-      '.slr_install(function() utils::install.packages("molpathR"',
+import type { ProcessResult, RunOptions } from '../src/main/process-manager';
+const entry: AppEntry = {
+  id: '12345678-1234-1234-1234-123456789abc',
+  name: 'Demo',
+  pkg: 'testpkg',
+  fun: 'run',
+  source: { kind: 'cran' },
+  installed: false,
+  createdAt: '',
+};
+function fixture(
+  result: ProcessResult = { code: 0, stdout: 'INSTALL_OK\n', stderr: '' },
+) {
+  const startScript = vi.fn(
+    (_cmd: string, _script: string, _opts: RunOptions) => ({
+      done: Promise.resolve(result),
+    }),
+  );
+  const ready = vi.fn(async (_signal?: AbortSignal) => ({
+    rPath: '/fake/Rscript',
+    source: 'system',
+    version: '4.4.2',
+    arch: 'x86_64',
+  }));
+  const runtime = {
+    ready,
+    processes: { startScript },
+    ensureLibrary: () => '/fake/library with spaces',
+    childEnv: (extra: NodeJS.ProcessEnv) => ({
+      R_LIBS_USER: '/fake/library with spaces',
+      ...extra,
+    }),
+  } as unknown as RRuntimeManager;
+  return { runtime, ready, startScript };
+}
+describe('mirror trust boundary', () => {
+  it('accepts clean HTTPS and rejects HTTP, credentials, control characters and injection', () => {
+    expect(safeRepos('https://cloud.r-project.org')).toBe(
+      'https://cloud.r-project.org/',
     );
-    expect(buildGithubScript('cttir/zhncommandR', 'zhncommandR', '/lib', 'https://x', false)).toContain(
-      '.slr_install(function() remotes::install_github("cttir/zhncommandR"',
-    );
+    for (const url of [
+      'http://cran.example.org',
+      'file:///tmp/x',
+      'https://user:password@example.org',
+      'https://x\n',
+      'https://x");system("x")',
+    ])
+      expect(() => safeRepos(url)).toThrow();
   });
 });
-
-describe('buildSourceInstallScript', () => {
-  it('always ensures shiny, installs missing only, and gates on shiny', () => {
-    const s = buildSourceInstallScript(['dplyr'], '/lib', 'https://cloud.r-project.org', false);
-    expect(s).toContain('"shiny"');
-    expect(s).toContain('"dplyr"');
-    expect(s).toContain('requireNamespace("shiny"');
-    expect(s).toContain('INSTALL_OK');
+it('passes package/repo/library/token as environment data to a constant program', async () => {
+  const f = fixture();
+  const token = 'fake-installer-token';
+  const result = await installPackage(
+    { ...entry, source: { kind: 'github', repo: 'owner/repo@topic' } },
+    { runtime: f.runtime, settings: DEFAULT_SETTINGS, token },
+  );
+  expect(result.ok).toBe(true);
+  const [command, script, options] = f.startScript.mock.calls[0]!;
+  expect(command).toBe('/fake/Rscript');
+  expect(script).toBe(INSTALL_SCRIPT);
+  expect(script).not.toContain(token);
+  expect(script).not.toContain('owner/repo@topic');
+  expect(options.env).toMatchObject({
+    GITHUB_PAT: token,
+    SLR_PACKAGE: 'testpkg',
+    SLR_REPO: 'owner/repo@topic',
+    SLR_LIBRARY: '/fake/library with spaces',
   });
-
-  it('is resilient: a batch failure falls back to per-package tryCatch', () => {
-    const s = buildSourceInstallScript(['dplyr', 'ggplot2'], '/lib', 'https://x', true);
-    expect(s).toContain('tryCatch');
-    expect(s).toContain('for (p in missing)');
-    // a false-positive name must not be able to abort the whole install
-    expect(s).not.toMatch(/stop\(.*missing/);
-  });
-
-  it('drops invalid scanned names defensively', () => {
-    const s = buildSourceInstallScript(['ok.pkg', 'bad;name', '../evil'], '/lib', 'https://x', false);
-    expect(s).toContain('"ok.pkg"');
-    expect(s).not.toContain('bad;name');
-    expect(s).not.toContain('evil');
-  });
+  expect(options.owner).toBe(entry.id);
+  expect(options.timeoutMs).toBeGreaterThan(0);
 });
-
-describe('buildNamespacesLoadScript', () => {
-  it('reports LOAD_OK / LOAD_MISSING over the validated set', () => {
-    const s = buildNamespacesLoadScript(['shiny', 'dplyr', 'bad;name']);
-    expect(s).toContain('"shiny"');
-    expect(s).toContain('"dplyr"');
-    expect(s).not.toContain('bad;name');
-    expect(s).toContain('LOAD_OK');
-    expect(s).toContain('LOAD_MISSING');
-  });
+it('includes shiny once and installs only the supplied declared dependency set', async () => {
+  const f = fixture();
+  const source = {
+    ...entry,
+    pkg: undefined,
+    source: {
+      kind: 'source' as const,
+      origin: { from: 'local' as const, path: '/fake/source' },
+    },
+  };
+  expect(
+    (
+      await installSourceDeps(source, ['DT', 'shiny', 'DT'], {
+        runtime: f.runtime,
+        settings: DEFAULT_SETTINGS,
+      })
+    ).ok,
+  ).toBe(true);
+  expect(f.startScript.mock.calls[0]![2].env?.SLR_PACKAGES).toBe('shiny,DT');
 });
-
-describe('installPackage degradation (R absent)', () => {
-  it('returns a recoverable error, never throws, when R is unavailable', async () => {
-    const entry: AppEntry = {
-      id: 'a1',
-      name: 'Demo',
-      pkg: 'molpathR',
-      fun: 'mp_run_app',
-      source: { kind: 'cran' },
-      installed: false,
-      createdAt: '2026-01-01T00:00:00.000Z',
-    };
-    const runtime = {
-      resolveRscript: () => undefined,
-      ensureLibrary: () => '/lib',
-      childEnv: () => ({}),
-    } as unknown as RRuntimeManager;
-
-    const result = await installPackage(entry, { runtime, settings: DEFAULT_SETTINGS });
-    expect(result.ok).toBe(false);
-    expect(result.id).toBe('a1');
-    expect(result.message).toMatch(/R is not available/i);
+it('requires an exact success record and a successful process exit', async () => {
+  for (const result of [
+    { code: 0, stdout: 'prefix INSTALL_OK\n', stderr: '' },
+    { code: 1, stdout: 'INSTALL_OK\n', stderr: 'failed load' },
+    { code: 0, stdout: 'INSTALL_OK\n', stderr: '', error: 'cancelled' },
+  ]) {
+    const f = fixture(result);
+    expect(
+      (
+        await installPackage(entry, {
+          runtime: f.runtime,
+          settings: DEFAULT_SETTINGS,
+        })
+      ).ok,
+    ).toBe(false);
+  }
+});
+it('gates final success on every target loading from the managed library', () => {
+  expect(INSTALL_SCRIPT).toContain(
+    'requireNamespace(p,lib.loc=lib,quietly=TRUE)',
+  );
+  expect(INSTALL_SCRIPT).toContain(
+    'normalizePath(dirname(location)) != normalizePath(lib)',
+  );
+  expect(INSTALL_SCRIPT.indexOf('for (p in targets)')).toBeLessThan(
+    INSTALL_SCRIPT.indexOf('cat("INSTALL_OK'),
+  );
+});
+it('rejects invalid package/dependency input without starting a process', async () => {
+  const f = fixture();
+  expect(
+    (
+      await installPackage(
+        { ...entry, pkg: 'bad;name' },
+        { runtime: f.runtime, settings: DEFAULT_SETTINGS },
+      )
+    ).ok,
+  ).toBe(false);
+  expect(
+    (
+      await installSourceDeps(
+        {
+          ...entry,
+          source: { kind: 'source', origin: { from: 'local', path: '/fake' } },
+        },
+        ['../bad'],
+        { runtime: f.runtime, settings: DEFAULT_SETTINGS },
+      )
+    ).ok,
+  ).toBe(false);
+  expect(f.startScript).not.toHaveBeenCalled();
+});
+it('forwards cancellation to runtime and managed install process', async () => {
+  const f = fixture({
+    code: null,
+    stdout: '',
+    stderr: '',
+    error: 'Operation cancelled.',
   });
+  const controller = new AbortController();
+  const result = await installPackage(entry, {
+    runtime: f.runtime,
+    settings: DEFAULT_SETTINGS,
+    signal: controller.signal,
+  });
+  expect(f.ready).toHaveBeenCalledWith(controller.signal);
+  expect(f.startScript.mock.calls[0]![2].signal).toBe(controller.signal);
+  expect(result.ok).toBe(false);
+  expect(result.message).toContain('cancelled');
+});
+it('reports absent R as a recoverable error', async () => {
+  const f = fixture();
+  f.ready.mockResolvedValueOnce(undefined as never);
+  const result = await installPackage(entry, {
+    runtime: f.runtime,
+    settings: DEFAULT_SETTINGS,
+  });
+  expect(result.ok).toBe(false);
+  expect(result.message).toMatch(/R is not available/);
+  expect(f.startScript).not.toHaveBeenCalled();
 });

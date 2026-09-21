@@ -4,7 +4,14 @@ All notable changes to shinylaunchR are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0-rc.1] — Unpublished candidate
+
+Candidate qualification is tracked in `audit/2026-09-21/VALIDATION.md`; no release date is assigned.
+
+- Refresh Electron, React, TypeScript, Vite-compatible build tooling, Vitest and ESLint flat configuration; use Node 24.
+- Add three-platform PR checks, packaged smoke scaffolding, SHA-pinned actions and dependency updates.
+- Verify packaged Electron fuses, exclude sourcemaps and minimize macOS entitlements.
+- Replace archived native credential dependency with safeStorage integration; correct documentation and candidate metadata.
 
 ### Added
 - **Three app families.** Apps are grouped into **Packages** (CRAN / GitHub
@@ -27,8 +34,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Shiny file / hosted URL, with a globe glyph for URLs). A user icon overrides.
 - **Dependency-free zip extraction** (built-in `zlib`) with zip-slip protection.
 - **Trust confirmation** before adding a Shiny-file or hosted-URL app.
-- **Pre-launch dependency probe** for Shiny-file apps (the source analogue of the
-  package load gate).
+- Install-time dependency verification and early-exit launch diagnostics.
 
 ### Changed
 - `pkg`/`fun` are now optional and required only for the Packages family; existing

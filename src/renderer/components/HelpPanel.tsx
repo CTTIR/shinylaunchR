@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import type { AppInfo } from '@shared/types';
+import { useFocusTrap } from '../lib/useFocusTrap';
 import { api } from '../lib/api';
 
 export type HelpSection = 'help' | 'shortcuts' | 'about';
@@ -26,25 +27,57 @@ export function HelpPanel({
   section: HelpSection;
   onClose: () => void;
 }) {
+  const trap = useFocusTrap<HTMLDivElement>();
+  const [error, setError] = useState('');
   const [tab, setTab] = useState<HelpSection>(section);
   const [info, setInfo] = useState<AppInfo | null>(null);
 
   useEffect(() => setTab(section), [section]);
   useEffect(() => {
-    void api.appInfo().then(setInfo);
+    void api
+      .appInfo()
+      .then(setInfo)
+      .catch((e) => setError(String(e)));
   }, []);
 
+  const open = (url: string) =>
+    void api
+      .openExternal(url)
+      .then((r) => {
+        if (!r.ok) setError(r.message || 'Could not open link');
+      })
+      .catch((e) => setError(String(e)));
+
   return (
-    <div className="panel">
+    <div
+      className="panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Help"
+      tabIndex={-1}
+      ref={trap}
+    >
       <div className="panel-header">
         <h2>Help</h2>
-        <button className="btn ghost" aria-label="Close panel" onClick={onClose}>
+        <button
+          className="btn ghost"
+          aria-label="Close panel"
+          onClick={onClose}
+        >
           ✕
         </button>
       </div>
       <div className="panel-body">
+        {error && (
+          <p role="alert" className="error">
+            {error} Please try again.
+          </p>
+        )}
         <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-          <button className={`btn ${tab === 'help' ? 'primary' : 'ghost'}`} onClick={() => setTab('help')}>
+          <button
+            className={`btn ${tab === 'help' ? 'primary' : 'ghost'}`}
+            onClick={() => setTab('help')}
+          >
             Quick Start
           </button>
           <button
@@ -64,23 +97,42 @@ export function HelpPanel({
         {tab === 'help' && (
           <div>
             <p>
-              <strong>shinylaunchR</strong> is a launchpad for R/Shiny apps. Each tile is a
-              registered app; click <code>+</code> to add one and double-click a ready tile to open
-              it in its own native window.
+              <strong>shinylaunchR</strong> is a launchpad for R/Shiny apps.
+              Each tile is a registered app; click <code>+</code> to add one and
+              double-click a ready tile to open it in its own native window.
             </p>
-            <ol style={{ paddingLeft: 18, lineHeight: 1.7 }}>
-              <li>Click <strong>+ Add app</strong>.</li>
-              <li>Pick a source: a CRAN package or a GitHub <code>org/repo</code>.</li>
+            <ul style={{ paddingLeft: 18, lineHeight: 1.7 }}>
               <li>
-                Enter the <strong>launcher function</strong> — the function the package exposes to
-                start its Shiny app, e.g. <code>mp_run_app</code>. It is called as{' '}
-                <code>pkg::fun()</code>.
+                <strong>Packages:</strong> choose CRAN or GitHub, enter the
+                package name and exported launcher function (for example{' '}
+                <code>pkg::run_app()</code>). Installation uses the managed R
+                library.
               </li>
-              <li>shinylaunchR installs the package into its managed library and shows progress.</li>
-              <li>When the tile turns green, double-click to launch.</li>
-            </ol>
+              <li>
+                <strong>Shiny apps:</strong> choose a local folder, ZIP, gist or
+                GitHub repository containing <code>app.R</code> or{' '}
+                <code>ui.R</code> and <code>server.R</code>. Files are copied
+                locally. Add only code you trust.
+              </li>
+              <li>
+                <strong>Hosted URLs:</strong> enter an HTTPS address. No local R
+                or installation is needed. Sign-in sessions are temporary and
+                end when the app closes.
+              </li>
+            </ul>
+            <p>
+              Click or focus a tile to select it; double-click or press Enter to
+              launch. Space selects. Right-click or press Shift+F10 for actions.
+              Stop / cancel ends an active launch or installation; retry failed
+              work from the app actions.
+            </p>
+            <p>
+              For packages and Shiny files, open the R panel to select an
+              existing R ≥ 4.2 installation.
+            </p>
             <p style={{ color: 'var(--text-dim)', fontSize: 13 }}>
-              R runs headless in the background; the app window simply loads the local Shiny URL.
+              R runs headless in the background; the app window simply loads the
+              local Shiny URL.
             </p>
           </div>
         )}
@@ -111,7 +163,7 @@ export function HelpPanel({
                   href="#"
                   onClick={(e) => {
                     e.preventDefault();
-                    void api.openExternal(`https://orcid.org/${info.orcid}`);
+                    open(`https://orcid.org/${info.orcid}`);
                   }}
                 >
                   {info.orcid}
@@ -123,7 +175,7 @@ export function HelpPanel({
                   href="#"
                   onClick={(e) => {
                     e.preventDefault();
-                    void api.openExternal(`${info.repo}/blob/main/LICENSE`);
+                    open(`${info.repo}/blob/main/LICENSE`);
                   }}
                 >
                   Apache License 2.0
@@ -139,42 +191,50 @@ export function HelpPanel({
               <div className="v">{info.userDataPath}</div>
             </div>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn" onClick={() => void api.openExternal(info.repo)}>
+              <button className="btn" onClick={() => open(info.repo)}>
                 Repository
               </button>
               <button
                 className="btn"
-                onClick={() => void api.openExternal(`${info.repo}/issues`)}
+                onClick={() => open(`${info.repo}/issues`)}
               >
                 Report an issue
               </button>
               <button
                 className="btn ghost"
-                onClick={() => void api.openExternal(`${info.repo}/blob/main/NOTICE`)}
+                onClick={() => open(`${info.repo}/blob/main/NOTICE`)}
               >
                 Notice
               </button>
               <button
                 className="btn ghost"
-                onClick={() => void api.openExternal(`${info.repo}/blob/main/THIRD_PARTY_LICENSES.md`)}
+                onClick={() =>
+                  open(`${info.repo}/blob/main/THIRD_PARTY_LICENSES.md`)
+                }
               >
                 Third-party licenses
               </button>
               <button
                 className="btn ghost"
-                onClick={() => void api.openExternal(`${info.repo}/blob/main/PRIVACY.md`)}
+                onClick={() => open(`${info.repo}/blob/main/PRIVACY.md`)}
               >
                 Privacy
               </button>
             </div>
 
             <hr className="sep" />
-            <p style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.6 }}>
-              shinylaunchR is an independent open-source project. It is not affiliated
-              with, endorsed by, or sponsored by Posit Software, PBC (RStudio), the R
-              Foundation, or the maintainers of Shiny. “R”, “RStudio”, “Posit”, and
-              “Shiny” are trademarks of their respective owners. No telemetry is
-              collected.
+            <p
+              style={{
+                fontSize: 12,
+                color: 'var(--text-dim)',
+                lineHeight: 1.6,
+              }}
+            >
+              shinylaunchR is an independent open-source project. It is not
+              affiliated with, endorsed by, or sponsored by Posit Software, PBC
+              (RStudio), the R Foundation, or the maintainers of Shiny. “R”,
+              “RStudio”, “Posit”, and “Shiny” are trademarks of their respective
+              owners. No telemetry is collected.
             </p>
           </div>
         )}

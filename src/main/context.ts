@@ -10,10 +10,27 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BrowserWindow, dialog, nativeTheme, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  nativeTheme,
+  shell,
+  safeStorage,
+  type IpcMainInvokeEvent,
+} from 'electron';
+import { ProcessManager } from './process-manager';
+import { OperationCoordinator } from './operation-coordinator';
+import {
+  restrictSession,
+  restrictWindow,
+  sameOrigin,
+  trustedSender,
+  openHttps,
+} from './window-policy';
+import { pathToFileURL } from 'node:url';
 import {
   IPC,
-  appFamily,
   type AppEntry,
   type AppEntryInput,
   type AppInfo,
@@ -31,18 +48,17 @@ import { logger } from './logger';
 import { Registry } from './registry';
 import { RRuntimeManager } from './r-runtime';
 import { ShinySupervisor } from './shiny-supervisor';
-import { PidLedger } from './pid-ledger';
-import { cleanForReinstall, removeInstalledPackage } from './library';
+import { removeInstalledPackage } from './library';
 import { IconManager } from './icons';
+import { installPackage, installSourceDeps } from './installer';
 import {
-  installPackage,
-  installSourceDeps,
-  verifyNamespacesLoad,
-  verifyPackageLoads,
-} from './installer';
-import { removeStaged, scanDependencies, stageSource } from './source-apps';
+  removeStaged,
+  scanDependencyModel,
+  prepareSource,
+} from './source-apps';
 import { getSettings, initSettings, setSettings } from './settings';
 import * as credentials from './credentials';
+import { createLegacyBackend } from './legacy-credentials';
 import { resourcePath } from './resources';
 
 export class AppContext {
@@ -51,22 +67,56 @@ export class AppContext {
   readonly supervisor: ShinySupervisor;
   readonly icons: IconManager;
 
+  readonly processes: ProcessManager;
+  private operations: OperationCoordinator;
+  private windows = new Map<string, BrowserWindow>();
   private mainWindow: BrowserWindow | null = null;
   private selectedId: string | null = null;
   private installing = new Set<string>();
   private errors = new Map<string, string>();
   private menuRebuilder: (() => void) | null = null;
 
-  constructor(private readonly userDataDir: string) {
+  constructor(
+    private readonly userDataDir: string,
+    options: { smoke?: boolean } = {},
+  ) {
     initSettings(userDataDir);
     this.registry = new Registry(path.join(userDataDir, 'registry.json'));
-    this.runtime = new RRuntimeManager({ userDataDir });
-    this.supervisor = new ShinySupervisor({
-      ledger: new PidLedger(path.join(userDataDir, 'running-pids.json')),
+    this.processes = new ProcessManager(path.join(userDataDir, 'processes'));
+    this.processes.enableLedger(path.join(userDataDir, 'running-pids.json'));
+    this.runtime = new RRuntimeManager({
+      userDataDir,
+      processes: this.processes,
     });
+    this.supervisor = new ShinySupervisor();
+    this.operations = new OperationCoordinator(() => this.broadcastStatus());
+    credentials.initCredentials(
+      userDataDir,
+      options.smoke
+        ? {
+            isEncryptionAvailable: () => false,
+            encryptString: () => {
+              throw new Error('Smoke credentials disabled');
+            },
+            decryptString: () => {
+              throw new Error('Smoke credentials disabled');
+            },
+          }
+        : safeStorage,
+      options.smoke ? undefined : createLegacyBackend(),
+    );
     this.icons = new IconManager(path.join(userDataDir, 'icons'));
 
-    this.supervisor.setStatusListener(() => this.broadcastStatus());
+    this.supervisor.setStatusListener(() => {
+      for (const [id, win] of this.windows) {
+        const entry = this.registry.get(id);
+        if (entry?.source.kind !== 'url' && !this.supervisor.isRunning(id)) {
+          this.windows.delete(id);
+          if (!win.isDestroyed()) win.close();
+        }
+      }
+      this.broadcastStatus();
+    });
     logger.on('log', (e: LogEvent) => this.send(IPC.evtLog, e));
 
     const settings = getSettings();
@@ -77,6 +127,15 @@ export class AppContext {
   }
 
   // -- window wiring -------------------------------------------------------
+
+  isTrustedSender(
+    event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>,
+  ): boolean {
+    const dev = !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined;
+    const expected =
+      dev ?? pathToFileURL(path.join(__dirname, '../renderer/index.html')).href;
+    return trustedSender(event, this.mainWindow, expected, !!dev);
+  }
 
   setMainWindow(win: BrowserWindow): void {
     this.mainWindow = win;
@@ -98,7 +157,7 @@ export class AppContext {
 
   /** True if any app currently has a running R/Shiny process. */
   anyRunning(): boolean {
-    return this.supervisor.statuses().length > 0;
+    return this.supervisor.statuses().length > 0 || this.windows.size > 0;
   }
 
   /**
@@ -107,11 +166,8 @@ export class AppContext {
    * and — on Windows — hold compiled-package DLLs locked, which blocks the next
    * reinstall. Run once at startup, before the user can trigger an install.
    */
-  reapOrphanProcesses(): void {
-    const killed = this.supervisor.reapOrphans();
-    if (killed > 0) {
-      logger.info('main', `Reaped ${killed} orphaned R process(es) from a previous session.`);
-    }
+  async reapOrphanProcesses(): Promise<void> {
+    await this.processes.reap();
   }
 
   private send(channel: string, payload: unknown): void {
@@ -132,345 +188,373 @@ export class AppContext {
   // -- status --------------------------------------------------------------
 
   statuses(): AppStatus[] {
+    const running = new Map(this.supervisor.statuses().map((s) => [s.id, s]));
     return this.registry.list().map((entry) => {
-      if (this.supervisor.isRunning(entry.id)) {
-        const r = this.supervisor.getRunning(entry.id)!;
-        return { id: entry.id, state: 'running', port: r.port, url: r.url };
-      }
-      if (this.installing.has(entry.id)) return { id: entry.id, state: 'installing' };
-      if (this.errors.has(entry.id)) {
-        return { id: entry.id, state: 'error', message: this.errors.get(entry.id) };
-      }
-      return { id: entry.id, state: entry.installed ? 'ready' : 'not-installed' };
+      if (this.installing.has(entry.id))
+        return { id: entry.id, state: 'installing' };
+      if (this.operations.has(entry.id))
+        return {
+          id: entry.id,
+          state:
+            this.operations.kind(entry.id) === 'launch'
+              ? 'launching'
+              : 'queued',
+        };
+      const status = running.get(entry.id);
+      if (status) return status;
+      if (this.windows.has(entry.id)) return { id: entry.id, state: 'running' };
+      if (this.errors.has(entry.id))
+        return {
+          id: entry.id,
+          state: 'error',
+          message: this.errors.get(entry.id),
+        };
+      return {
+        id: entry.id,
+        state: entry.installed ? 'ready' : 'not-installed',
+      };
     });
   }
 
   // -- registry CRUD -------------------------------------------------------
 
   listApps(): AppEntry[] {
-    return this.registry.list();
+    return this.registry
+      .list()
+      .map((entry) => ({ ...entry, iconPath: this.icons.url(entry.iconPath) }));
   }
 
   async addApp(input: AppEntryInput): Promise<AppEntry> {
-    const entry = this.registry.add(input);
-    if (input.iconPath) {
-      const cached = this.icons.copyUserIcon(input.iconPath, entry.id);
-      if (cached) this.registry.patch(entry.id, { iconPath: cached });
+    const entry = this.registry.add({ ...input, iconPath: undefined });
+    try {
+      if (input.iconPath)
+        this.registry.patch(entry.id, {
+          iconPath: this.icons.copyUserIcon(input.iconPath, entry.id),
+        });
+      if (entry.source.kind === 'url')
+        this.registry.patch(entry.id, { installed: true });
+    } catch (e) {
+      this.registry.remove(entry.id);
+      throw e;
     }
-    logger.info('registry', `Added app "${entry.name}" (${entry.pkg}).`, entry.id);
-    // Kick off installation in the background.
-    void this.install(entry.id);
-    return this.registry.get(entry.id)!;
+    this.broadcastStatus();
+    return this.listApps().find((e) => e.id === entry.id)!;
   }
 
   async updateApp(id: string, input: AppEntryInput): Promise<AppEntry> {
-    const updated = this.registry.update(id, input);
-    if (input.iconPath && input.iconPath !== updated.iconPath) {
-      const cached = this.icons.copyUserIcon(input.iconPath, id);
-      if (cached) this.registry.patch(id, { iconPath: cached });
-    }
-    logger.info('registry', `Updated app "${updated.name}".`, id);
-    this.broadcastStatus();
-    return this.registry.get(id)!;
+    return this.operations.replace(id, 'update', async (signal) => {
+      await this.stopRunning(id);
+      signal.throwIfAborted();
+      const previous = this.registry.get(id);
+      if (!previous) throw new Error('Unknown app.');
+      let iconPath = input.iconPath;
+      if (iconPath === this.icons.url(previous.iconPath))
+        iconPath = previous.iconPath;
+      else if (iconPath) iconPath = this.icons.copyUserIcon(iconPath, id);
+      this.registry.update(id, { ...input, iconPath });
+      if (input.source.kind === 'url')
+        this.registry.patch(id, { installed: true });
+      this.errors.delete(id);
+      this.broadcastStatus();
+      return this.listApps().find((e) => e.id === id)!;
+    });
   }
 
   async removeApp(id: string, alsoUninstall: boolean): Promise<OkResult> {
-    if (this.supervisor.isRunning(id)) this.supervisor.stop(id);
-    const entry = this.registry.get(id);
-    this.registry.remove(id);
-    this.errors.delete(id);
-    if (entry?.iconPath) this.deleteCachedIcon(entry.iconPath);
-    // Drop any staged source-app files (no effect for package/url families).
-    removeStaged(this.userDataDir, id);
-    if (alsoUninstall && entry?.pkg) {
-      // Actually remove the package from the managed library (its own top-level
-      // dir + any 00LOCK). Shared dependencies are left in place so deleting one
-      // app cannot break another. Best-effort: a live lock is reported, not fatal.
-      const r = removeInstalledPackage(this.runtime.libraryPath, entry.pkg);
-      if (r.removed.length) {
-        logger.info('registry', `Uninstalled ${entry.pkg} from the managed library.`, id);
-      }
-      if (r.failed.length) {
-        logger.warn(
-          'registry',
-          `Could not fully remove ${entry.pkg} (close any running R sessions and retry): ${r.failed.join(', ')}.`,
-          id,
+    return this.operations.replace(id, 'remove', async (signal) => {
+      await this.stopRunning(id);
+      signal.throwIfAborted();
+      const entry = this.registry.get(id);
+      if (!entry) throw new Error('Unknown app.');
+      signal.throwIfAborted();
+      if (alsoUninstall && entry.pkg) {
+        const other = this.registry
+          .list()
+          .filter((e) => e.id !== id && e.source.kind !== 'url');
+        if (other.length)
+          throw new Error(
+            'Keep the package: other apps share this library and may depend on it.',
+          );
+        await this.supervisor.stopAll();
+        if (!(await this.runtime.ready(signal)))
+          throw new Error(
+            'Select the R runtime used for this installation before uninstalling its package.',
+          );
+        if (entry.libraryPath && entry.libraryPath !== this.runtime.libraryPath)
+          throw new Error(
+            'Select the original R runtime to uninstall this package, or remove only the launcher entry.',
+          );
+        const result = removeInstalledPackage(
+          this.runtime.libraryPath,
+          entry.pkg,
         );
+        if (result.failed.length)
+          throw new Error(
+            'Could not remove the package; close other R sessions and retry.',
+          );
       }
-    }
-    if (this.selectedId === id) this.selectedId = null;
-    this.broadcastStatus();
-    return { ok: true };
+      this.registry.remove(id);
+      this.errors.delete(id);
+      if (entry.iconPath) this.deleteCachedIcon(entry.iconPath);
+      removeStaged(this.userDataDir, id);
+      if (this.selectedId === id) this.selectedId = null;
+      this.broadcastStatus();
+      return { ok: true };
+    });
   }
-
-  // -- install / launch ----------------------------------------------------
 
   async install(id: string): Promise<InstallResult> {
-    const entry = this.registry.get(id);
-    if (!entry) return { ok: false, id, message: 'Unknown app.' };
-    this.errors.delete(id);
-    // A reinstall must overwrite files the running app may have loaded. On
-    // Windows a loaded compiled package locks its `.dll`, which blocks pak's
-    // move-into-place ("Failed to move installed package"). Stop any running
-    // instance first so the managed library can be replaced cleanly.
-    if (this.supervisor.isRunning(id)) this.supervisor.stop(id);
-    const family = appFamily(entry.source);
-
-    // A hosted URL has nothing to install — it is ready as soon as it is added.
-    if (family === 'url') {
-      this.registry.patch(id, { installed: true });
-      this.broadcastStatus();
-      return { ok: true, id };
-    }
-
-    // Clear wreckage that would block pak's move-into-place: stale `00LOCK*`
-    // dirs and any corrupt (DESCRIPTION-less) leftover of this package. The
-    // running instance was already stopped above, so its DLL lock is released.
-    const cleaned = cleanForReinstall(this.runtime.ensureLibrary(), entry.pkg ?? '');
-    if (cleaned.removed.length) {
-      logger.info('installer', `Cleared stale library artifacts: ${cleaned.removed.join(', ')}.`, id);
-    }
-    if (cleaned.failed.length) {
-      logger.warn(
-        'installer',
-        `Could not clear (still locked — close any running R sessions): ${cleaned.failed.join(', ')}.`,
-        id,
-      );
-    }
-
-    this.installing.add(id);
-    this.broadcastStatus();
-    let token: string | null = null;
     try {
-      token = await credentials.getToken();
-    } catch {
-      token = null;
-    }
-
-    if (family === 'shinyfile') {
-      const result = await this.installSource(entry, token);
-      this.installing.delete(id);
+      return await this.operations.run(id, 'install', async (signal) => {
+        const entry = this.registry.get(id);
+        if (!entry) return { ok: false, id, message: 'Unknown app.' };
+        this.errors.delete(id);
+        if (entry.source.kind === 'url') {
+          this.registry.patch(id, { installed: true });
+          return { ok: true, id };
+        }
+        // Shared compiled dependencies cannot be replaced while another owned R app has them loaded.
+        await this.supervisor.stopAll();
+        signal.throwIfAborted();
+        this.installing.add(id);
+        this.broadcastStatus();
+        try {
+          if (!(await this.runtime.ready(signal)))
+            throw new Error(
+              'R not found. Select a supported Rscript in R Runtime.',
+            );
+          const libraryPath = this.runtime.libraryPath;
+          const needsGithub =
+            entry.source.kind === 'github' ||
+            (entry.source.kind === 'source' &&
+              (['github', 'gist'].includes(entry.source.origin.from) ||
+                (entry.source.origin.from === 'zip' &&
+                  !!entry.source.origin.url)));
+          const token = needsGithub ? await credentials.getToken() : null;
+          signal.throwIfAborted();
+          let result: InstallResult;
+          if (entry.source.kind === 'source') {
+            const staged = await prepareSource(entry, {
+              userDataDir: this.userDataDir,
+              token,
+              signal,
+            });
+            if (!staged.ok || !staged.appDir)
+              throw new Error(staged.message ?? 'Staging failed.');
+            try {
+              const dependencies = scanDependencyModel(staged.appDir);
+              result = await installSourceDeps(entry, dependencies.required, {
+                runtime: this.runtime,
+                settings: getSettings(),
+                token,
+                signal,
+                advisory: dependencies.advisory,
+              });
+              signal.throwIfAborted();
+              if (!result.ok)
+                throw new Error(
+                  result.message ?? 'Dependency installation failed.',
+                );
+              const finalDir = staged.commit();
+              this.registry.patch(id, {
+                stagedPath: finalDir,
+                installed: true,
+                libraryPath,
+              });
+              staged.finalize();
+              if (!entry.iconPath) {
+                try {
+                  const icon = this.icons.resolveSourceIcon(finalDir, id);
+                  if (icon) this.registry.patch(id, { iconPath: icon });
+                } catch {
+                  logger.warn(
+                    'icons',
+                    'App installed; optional icon could not be cached.',
+                    id,
+                  );
+                }
+              }
+            } catch (e) {
+              staged.rollback();
+              throw e;
+            }
+          } else {
+            result = await installPackage(entry, {
+              runtime: this.runtime,
+              settings: getSettings(),
+              token,
+              signal,
+            });
+            signal.throwIfAborted();
+            if (!result.ok)
+              throw new Error(result.message ?? 'Installation failed.');
+            this.registry.patch(id, { installed: true, libraryPath });
+            if (!entry.iconPath) {
+              try {
+                const icon = await this.icons.resolvePackageIcon(
+                  entry,
+                  this.runtime,
+                  signal,
+                );
+                if (icon) this.registry.patch(id, { iconPath: icon });
+              } catch {
+                logger.warn(
+                  'icons',
+                  'App installed; optional icon could not be cached.',
+                  id,
+                );
+              }
+            }
+          }
+          return result;
+        } finally {
+          this.installing.delete(id);
+          this.broadcastStatus();
+        }
+      });
+    } catch (e) {
+      const message = logger.redact(e instanceof Error ? e.message : String(e));
+      this.errors.set(id, message);
+      logger.error('installer', message, id);
       this.broadcastStatus();
-      return result;
+      return { ok: false, id, message };
     }
-
-    const result = await installPackage(entry, {
-      runtime: this.runtime,
-      settings: getSettings(),
-      token,
-    });
-    this.installing.delete(id);
-    if (result.ok) {
-      this.registry.patch(id, { installed: true });
-      // Resolve a package icon if the user didn't supply one.
-      if (!entry.iconPath) {
-        const iconPath = await this.icons.resolvePackageIcon(entry, this.runtime);
-        if (iconPath) this.registry.patch(id, { iconPath });
-      }
-    } else if (result.message) {
-      this.errors.set(id, result.message);
-    }
-    this.broadcastStatus();
-    return result;
-  }
-
-  /** Stage a source app, scan its dependencies, install them, resolve its icon. */
-  private async installSource(entry: AppEntry, token: string | null): Promise<InstallResult> {
-    const staged = await stageSource(entry, { userDataDir: this.userDataDir, token });
-    if (!staged.ok || !staged.appDir) {
-      const message = staged.message ?? 'Staging failed.';
-      this.errors.set(entry.id, message);
-      return { ok: false, id: entry.id, message };
-    }
-    this.registry.patch(entry.id, { stagedPath: staged.appDir });
-    const pkgs = scanDependencies(staged.appDir);
-    const result = await installSourceDeps(this.registry.get(entry.id)!, pkgs, {
-      runtime: this.runtime,
-      settings: getSettings(),
-      token,
-    });
-    if (result.ok) {
-      this.registry.patch(entry.id, { installed: true });
-      if (!entry.iconPath) {
-        const iconPath = this.icons.resolveSourceIcon(staged.appDir, entry.id);
-        if (iconPath) this.registry.patch(entry.id, { iconPath });
-      }
-    } else if (result.message) {
-      this.errors.set(entry.id, result.message);
-    }
-    return result;
   }
 
   async launch(id: string): Promise<LaunchResult> {
-    let entry = this.registry.get(id);
-    if (!entry) return { ok: false, id, message: 'Unknown app.' };
-    const family = appFamily(entry.source);
-
-    // A hosted URL just opens its remote window — no R, no port, no install.
-    if (family === 'url' && entry.source.kind === 'url') {
-      this.openRemoteWindow(entry, entry.source.url);
-      this.errors.delete(id);
-      this.registry.patch(id, { lastLaunchedAt: new Date().toISOString() });
-      this.broadcastStatus();
-      return { ok: true, id, url: entry.source.url };
+    const current = this.windows.get(id);
+    if (current && !current.isDestroyed()) {
+      if (current.isMinimized()) current.restore();
+      current.focus();
+      return { ok: true, id };
     }
-
-    if (!entry.installed) {
-      return { ok: false, id, message: 'App is not installed yet.' };
-    }
-
-    if (family === 'package') {
-      // Pre-launch probe: if the package's namespace won't load (e.g. a missing
-      // dependency), surface a clear error instead of spawning R into a halt.
-      const loads = await verifyPackageLoads(entry.pkg!, { runtime: this.runtime });
-      if (!loads) {
-        const message =
-          `App "${entry.pkg}" can't load — a dependency may be missing. ` +
-          `Try Reinstall / Update to install its full dependency tree.`;
-        this.errors.set(id, message);
-        logger.error('shiny', message, id);
+    if (this.operations.kind(id) === 'install')
+      return {
+        ok: false,
+        id,
+        message: 'Installation is still in progress. Wait or cancel it.',
+      };
+    try {
+      return await this.operations.run(id, 'launch', async (signal) => {
+        const entry = this.registry.get(id);
+        if (!entry) throw new Error('Unknown app.');
+        if (entry.source.kind === 'url') {
+          this.openAppWindow(entry, entry.source.url, true);
+          this.registry.patch(id, { lastLaunchedAt: new Date().toISOString() });
+          return { ok: true, id, url: entry.source.url };
+        }
+        if (!entry.installed)
+          throw new Error('App is not installed yet. Use Install / Update.');
+        await this.runtime.ready(signal);
+        if (entry.libraryPath && entry.libraryPath !== this.runtime.libraryPath)
+          throw new Error(
+            'R runtime changed. Reinstall this app into the selected runtime library.',
+          );
+        if (
+          entry.source.kind === 'source' &&
+          (!entry.stagedPath || !fs.existsSync(entry.stagedPath))
+        )
+          throw new Error('Staged app is missing. Reinstall it.');
+        const result = await this.supervisor.launch(
+          entry,
+          this.runtime,
+          getSettings(),
+          signal,
+        );
+        if (!result.ok) throw new Error(result.message ?? 'Launch failed.');
+        signal.throwIfAborted();
+        this.errors.delete(id);
+        this.registry.patch(id, { lastLaunchedAt: new Date().toISOString() });
+        this.openAppWindow(entry, result.url!, false);
         this.broadcastStatus();
-        return { ok: false, id, message };
-      }
-    } else if (family === 'shinyfile') {
-      // Re-stage if the staged directory is missing (e.g. after cache clear).
-      if (!entry.stagedPath || !fs.existsSync(entry.stagedPath)) {
-        let token: string | null = null;
-        try {
-          token = await credentials.getToken();
-        } catch {
-          token = null;
-        }
-        const staged = await stageSource(entry, { userDataDir: this.userDataDir, token });
-        if (!staged.ok || !staged.appDir) {
-          const message = staged.message ?? 'Could not stage the app.';
-          this.errors.set(id, message);
-          this.broadcastStatus();
-          return { ok: false, id, message };
-        }
-        this.registry.patch(id, { stagedPath: staged.appDir });
-        entry = this.registry.get(id)!;
-      }
-      // Pre-launch probe (the source analogue of the package load gate): confirm
-      // the app's scanned dependencies resolve before spawning R into runApp.
-      const probe = await verifyNamespacesLoad(scanDependencies(entry.stagedPath!), {
-        runtime: this.runtime,
+        return result;
       });
-      if (!probe.ok) {
-        const detail = probe.missing.length ? ` (missing: ${probe.missing.join(', ')})` : '';
-        const message =
-          `App "${entry.name}" can't load${detail} — a dependency may be missing. ` +
-          `Try Reinstall / Update to install its dependencies.`;
-        this.errors.set(id, message);
-        logger.error('shiny', message, id);
-        this.broadcastStatus();
-        return { ok: false, id, message };
-      }
-    }
-
-    const result = await this.supervisor.launch(entry, this.runtime, getSettings());
-    if (!result.ok) {
-      if (result.message) this.errors.set(id, result.message);
+    } catch (e) {
+      const message = logger.redact(e instanceof Error ? e.message : String(e));
+      this.errors.set(id, message);
+      logger.error('shiny', message, id);
       this.broadcastStatus();
-      return result;
+      return { ok: false, id, message };
     }
-    this.errors.delete(id);
-    this.registry.patch(id, { lastLaunchedAt: new Date().toISOString() });
-    this.openAppWindow(entry, result.url!);
-    this.broadcastStatus();
-    return result;
   }
 
-  private openAppWindow(entry: AppEntry, url: string): void {
+  private openAppWindow(entry: AppEntry, url: string, remote: boolean): void {
+    const existing = this.windows.get(entry.id);
+    if (existing && !existing.isDestroyed()) {
+      existing.focus();
+      return;
+    }
     const settings = getSettings();
     const win = new BrowserWindow({
       width: settings.defaultWindowWidth,
       height: settings.defaultWindowHeight,
       title: entry.name,
       icon: entry.iconPath ?? this.defaultIconPath(),
-      frame: !entry.frameless,
       backgroundColor: '#1a1a1d',
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
+        nodeIntegrationInWorker: false,
         nodeIntegrationInSubFrames: false,
         sandbox: true,
         webSecurity: true,
         allowRunningInsecureContent: false,
+        partition: `${remote ? 'remote' : 'local'}:${entry.id}`,
       },
     });
+    this.windows.set(entry.id, win);
     win.setMenuBarVisibility(false);
-
-    // The window may only ever show this app's own supervised loopback server.
-    // Block navigation elsewhere; route external links to the system browser.
-    const origin = `http://127.0.0.1:${this.supervisor.getRunning(entry.id)?.port ?? ''}`;
-    win.webContents.on('will-navigate', (event, target) => {
-      if (!target.startsWith(origin)) {
-        event.preventDefault();
-        if (/^https:\/\//i.test(target)) void shell.openExternal(target);
-      }
-    });
-    win.webContents.setWindowOpenHandler(({ url: target }) => {
-      if (/^https:\/\//i.test(target)) void shell.openExternal(target);
-      return { action: 'deny' };
-    });
-
-    void win.loadURL(url);
-    this.supervisor.attachWindow(entry.id, win);
+    restrictSession(win.webContents.session);
+    restrictWindow(win, (target) => sameOrigin(target, url));
     win.on('closed', () => {
-      this.supervisor.stop(entry.id);
+      if (this.windows.get(entry.id) !== win) return;
+      this.windows.delete(entry.id);
+      void this.supervisor
+        .stop(entry.id)
+        .catch((e) => logger.error('shiny', String(e)));
+      this.broadcastStatus();
+    });
+    void win.loadURL(url).catch((e) => {
+      if (this.windows.get(entry.id) !== win) return;
+      this.errors.set(entry.id, logger.redact(String(e)));
+      win.close();
+      this.broadcastStatus();
     });
   }
 
-  /**
-   * Open a HOSTED URL app's remote window. Unlike the local-app window this has
-   * NO preload, runs in a per-app isolated (non-persistent) session partition,
-   * and only ever loads https. Non-https targets and popups are routed to the
-   * system browser rather than the window.
-   */
-  private openRemoteWindow(entry: AppEntry, url: string): void {
-    const settings = getSettings();
-    const win = new BrowserWindow({
-      width: settings.defaultWindowWidth,
-      height: settings.defaultWindowHeight,
-      title: entry.name,
-      icon: entry.iconPath ?? this.defaultIconPath(),
-      frame: !entry.frameless,
-      backgroundColor: '#1a1a1d',
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-        nodeIntegrationInSubFrames: false,
-        sandbox: true,
-        webSecurity: true,
-        allowRunningInsecureContent: false,
-        partition: `remote:${entry.id}`,
-      },
+  async stop(id: string): Promise<OkResult> {
+    return this.operations.replace(id, 'stop', async () => {
+      await this.stopRunning(id);
+      return { ok: true };
     });
-    win.setMenuBarVisibility(false);
-
-    // Keep the window on https; hand anything else to the system browser.
-    win.webContents.on('will-navigate', (event, target) => {
-      if (!/^https:\/\//i.test(target)) {
-        event.preventDefault();
-      }
-    });
-    win.webContents.setWindowOpenHandler(({ url: target }) => {
-      if (/^https:\/\//i.test(target)) void shell.openExternal(target);
-      return { action: 'deny' };
-    });
-
-    void win.loadURL(url);
   }
-
-  stop(id: string): OkResult {
-    this.supervisor.stop(id);
+  private async stopRunning(id: string): Promise<void> {
+    await this.supervisor.stop(id);
+    const win = this.windows.get(id);
+    this.windows.delete(id);
+    if (win && !win.isDestroyed()) win.close();
+    this.errors.delete(id);
+    this.broadcastStatus();
+  }
+  async stopAll(): Promise<OkResult> {
+    await Promise.all(this.registry.list().map((entry) => this.stop(entry.id)));
     return { ok: true };
   }
-
-  stopAll(): OkResult {
-    this.supervisor.stopAll();
-    return { ok: true };
+  async shutdown(): Promise<void> {
+    await this.operations.shutdown();
+    await this.supervisor.stopAll();
+    await this.processes.shutdown();
+    for (const win of this.windows.values())
+      if (!win.isDestroyed()) win.close();
+    this.windows.clear();
+  }
+  async launchLast(): Promise<void> {
+    if (!getSettings().startupLaunchLast) return;
+    const last = this.registry
+      .list()
+      .filter((e) => e.installed && e.lastLaunchedAt)
+      .sort((a, b) => b.lastLaunchedAt!.localeCompare(a.lastLaunchedAt!))[0];
+    if (last) await this.launch(last.id);
   }
 
   // -- icons ---------------------------------------------------------------
@@ -479,7 +563,12 @@ export class AppContext {
     const res = await dialog.showOpenDialog(this.mainWindow ?? undefined!, {
       title: 'Choose an icon',
       properties: ['openFile'],
-      filters: [{ name: 'Images', extensions: ['png', 'svg', 'jpg', 'jpeg', 'gif', 'ico'] }],
+      filters: [
+        {
+          name: 'Images',
+          extensions: ['png', 'svg', 'jpg', 'jpeg', 'gif', 'ico'],
+        },
+      ],
     });
     if (res.canceled || res.filePaths.length === 0) return undefined;
     return res.filePaths[0];
@@ -535,8 +624,13 @@ export class AppContext {
       defaultPath: 'shinylaunchR-registry.json',
       filters: [{ name: 'JSON', extensions: ['json'] }],
     });
-    if (res.canceled || !res.filePath) return { ok: false, message: 'Cancelled' };
-    fs.writeFileSync(res.filePath, JSON.stringify(this.registry.exportData(), null, 2), 'utf-8');
+    if (res.canceled || !res.filePath)
+      return { ok: false, message: 'Cancelled' };
+    fs.writeFileSync(
+      res.filePath,
+      JSON.stringify(this.registry.exportData(), null, 2),
+      'utf-8',
+    );
     return { ok: true, message: `Exported to ${res.filePath}` };
   }
 
@@ -550,6 +644,12 @@ export class AppContext {
     if (res.canceled || !sourcePath) return { ok: false, message: 'Cancelled' };
     try {
       const payload = JSON.parse(fs.readFileSync(sourcePath, 'utf-8'));
+      if (
+        this.statuses().some((s) =>
+          ['queued', 'installing', 'launching'].includes(s.state),
+        )
+      )
+        throw new Error('Wait for active operations before importing.');
       const n = this.registry.importFrom(payload);
       this.broadcastStatus();
       return { ok: true, message: `Imported ${n} app(s).` };
@@ -564,25 +664,20 @@ export class AppContext {
     return this.runtime.status();
   }
 
-  async rBootstrap(): Promise<RStatus> {
-    try {
-      return await this.runtime.bootstrap();
-    } catch (err) {
-      const status = await this.runtime.status();
-      return { ...status, message: String(err instanceof Error ? err.message : err) };
-    }
-  }
-
   async rPointTo(): Promise<RStatus> {
-    const res = await dialog.showOpenDialog(this.mainWindow ?? undefined!, {
-      title: 'Locate Rscript executable',
-      properties: ['openFile'],
+    return this.operations.runExclusive(async () => {
+      if (this.supervisor.statuses().length)
+        throw new Error('Stop running R apps before changing the runtime.');
+      const res = await dialog.showOpenDialog(this.mainWindow ?? undefined!, {
+        title: 'Locate Rscript executable',
+        properties: ['openFile'],
+      });
+      if (!res.canceled && res.filePaths[0]) {
+        this.runtime.setCustomRscript(res.filePaths[0]);
+        logger.info('r-runtime', `Using custom Rscript: ${res.filePaths[0]}`);
+      }
+      return this.runtime.status();
     });
-    if (!res.canceled && res.filePaths[0]) {
-      this.runtime.setCustomRscript(res.filePaths[0]);
-      logger.info('r-runtime', `Using custom Rscript: ${res.filePaths[0]}`);
-    }
-    return this.runtime.status();
   }
 
   async rOpenLibrary(): Promise<OkResult> {
@@ -610,6 +705,10 @@ export class AppContext {
 
   clearIconCache(): OkResult {
     const n = this.icons.clearCache();
+    for (const entry of this.registry.list())
+      if (entry.iconPath && !this.icons.url(entry.iconPath))
+        this.registry.patch(entry.id, { iconPath: undefined });
+    this.broadcastStatus();
     return { ok: true, message: `Cleared ${n} cached icon(s).` };
   }
 
@@ -648,8 +747,7 @@ export class AppContext {
 
   async openExternal(url: string): Promise<OkResult> {
     // Only https — never file:/javascript:/http: from a renderer-supplied string.
-    if (!/^https:\/\//i.test(url)) return { ok: false, message: 'Only https URLs are allowed' };
-    await shell.openExternal(url);
+    await openHttps(url);
     return { ok: true };
   }
 }

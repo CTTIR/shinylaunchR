@@ -24,22 +24,28 @@ function asBool(v: unknown): boolean {
 }
 
 export function registerIpc(ctx: AppContext): void {
-  const handle = <T>(channel: string, fn: (...args: any[]) => T | Promise<T>) => {
-    ipcMain.handle(channel, async (_evt, ...args) => {
+  const handle = <T>(
+    channel: string,
+    fn: (...args: any[]) => T | Promise<T>,
+  ) => {
+    ipcMain.handle(channel, async (evt, ...args) => {
+      if (!ctx.isTrustedSender(evt)) throw new Error('Untrusted IPC sender.');
       try {
         return await fn(...args);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         logger.error('ipc', `${channel} failed: ${message}`);
         // Re-throw so the renderer's await rejects with a useful message.
-        throw new Error(message);
+        throw new Error(message, { cause: err });
       }
     });
   };
 
   // registry
   handle(IPC.listApps, () => ctx.listApps());
-  handle(IPC.addApp, (input: unknown) => ctx.addApp(validateInput(input as AppEntryInput)));
+  handle(IPC.addApp, (input: unknown) =>
+    ctx.addApp(validateInput(input as AppEntryInput)),
+  );
   handle(IPC.updateApp, (id: unknown, input: unknown) =>
     ctx.updateApp(asString(id, 'id'), validateInput(input as AppEntryInput)),
   );
@@ -67,14 +73,14 @@ export function registerIpc(ctx: AppContext): void {
 
   // R runtime
   handle(IPC.rStatus, () => ctx.rStatus());
-  handle(IPC.rBootstrap, () => ctx.rBootstrap());
   handle(IPC.rPointTo, () => ctx.rPointTo());
   handle(IPC.rOpenLibrary, () => ctx.rOpenLibrary());
 
   // settings
   handle(IPC.getSettings, () => ctx.getSettings());
   handle(IPC.setSettings, (patch: unknown) => {
-    if (!patch || typeof patch !== 'object') throw new Error('settings patch must be an object');
+    if (!patch || typeof patch !== 'object')
+      throw new Error('settings patch must be an object');
     return ctx.setSettings(patch as Record<string, never>);
   });
   handle(IPC.openUserData, () => ctx.openUserData());
@@ -82,16 +88,21 @@ export function registerIpc(ctx: AppContext): void {
 
   // credentials
   handle(IPC.credStatus, () => ctx.credStatus());
-  handle(IPC.credSet, (token: unknown) => ctx.credSet(asString(token, 'token')));
+  handle(IPC.credSet, (token: unknown) =>
+    ctx.credSet(asString(token, 'token')),
+  );
   handle(IPC.credRemove, () => ctx.credRemove());
   handle(IPC.credTest, () => ctx.credTest());
 
   // misc
   handle(IPC.appInfo, () => ctx.appInfo());
-  handle(IPC.openExternal, (url: unknown) => ctx.openExternal(asString(url, 'url')));
+  handle(IPC.openExternal, (url: unknown) =>
+    ctx.openExternal(asString(url, 'url')),
+  );
 
   // selection is fire-and-forget (renderer -> main, no reply)
-  ipcMain.on(IPC.selectApp, (_evt, id: unknown) => {
+  ipcMain.on(IPC.selectApp, (evt, id: unknown) => {
+    if (!ctx.isTrustedSender(evt)) return;
     ctx.setSelected(typeof id === 'string' ? id : null);
   });
 }

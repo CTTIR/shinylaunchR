@@ -42,7 +42,11 @@ export function ThemeToggle({
     onChange(ORDER[(idx + 1) % ORDER.length] ?? 'system');
   };
   return (
-    <button className="btn ghost" onClick={next} title="Toggle theme (dark / light / system)">
+    <button
+      className="btn ghost"
+      onClick={next}
+      title="Toggle theme (dark / light / system)"
+    >
       {LABEL[value]}
     </button>
   );

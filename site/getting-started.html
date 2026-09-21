@@ -54,11 +54,12 @@
       <h1>Getting started with shinylaunchR</h1>
       <p class="lead">
         shinylaunchR is a cross-platform desktop <strong>launchpad for R/Shiny apps</strong>. It
-        shows a grid of app tiles; clicking one opens that app in its own native window while R runs
+        shows a grid of app tiles; click to select, then double-click or press Enter to open an app while R runs
         headless in the background. shinylaunchR is <strong>not</strong> an R package — it is an
         Electron application that <em>manages</em> R as a subprocess.
       </p>
 
+      <p class="note">0.2.0-rc.1 is an unpublished candidate. Check the repository qualification record for each platform.</p>
       <h2>Install</h2>
       <p>
         Download the installer for your platform from the
@@ -97,29 +98,31 @@
           managed library and shows live progress in the log console.
         </li>
         <li>
-          When the tile turns green, <strong>click</strong> it to launch. The app opens in a
+          When the tile is ready, click to select it, then <strong>double-click or press Enter</strong> to launch. The app opens in a
           dedicated window with its own taskbar entry; R runs headless behind it.
         </li>
         <li><strong>Close</strong> the window to stop that app's R process.</li>
       </ol>
       <p class="note">
-        Only add Shiny-file and hosted-URL apps you trust — their R code runs, or their remote page
-        loads, when launched.
+        Only install trusted R packages and source apps: code runs with your account’s permissions.
+        Hosted sites can transmit entered data and use temporary sessions. Apps share a library scoped
+        to R version and architecture. Reinstall replaces staged files, including app-written files there;
+        keep durable data outside staging. Frameless windows are not offered.
       </p>
 
       <h2>R runtime</h2>
       <p>
-        shinylaunchR detects R on your system or downloads a managed copy from CRAN onto your
-        machine. Use <strong>R Runtime</strong> in the menu to check status, (re-)bootstrap a managed
-        R, point at an existing installation, or open the library folder.
+        Install R ≥ 4.2 separately for local package and source apps. shinylaunchR detects R on your
+        system; use <strong>R Runtime → Point to existing R</strong> if discovery does not find it.
+        Managed R downloads are not offered. Hosted URLs need no local R.
       </p>
 
       <h2>Why the security warning?</h2>
       <p>
         Releases ship unsigned by default, so Windows SmartScreen or macOS Gatekeeper may warn on
-        first launch. This is expected for unsigned open-source software; you can review the source
-        on <a href="https://github.com/CTTIR/shinylaunchR">GitHub</a> and click past the prompt. No
-        telemetry is collected and all data stays local.
+        first launch. Unsigned status is not evidence of safety. Review the source and release
+        qualification on <a href="https://github.com/CTTIR/shinylaunchR">GitHub</a>. The launcher has no
+        application telemetry, but installed R code and hosted sites can transmit data.
       </p>
     </main>
 

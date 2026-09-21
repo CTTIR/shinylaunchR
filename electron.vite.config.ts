@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
+import { defineConfig } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 
 const sharedAlias = {
@@ -8,11 +8,10 @@ const sharedAlias = {
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: [] })],
     resolve: { alias: sharedAlias },
     build: {
       outDir: resolve('out/main'),
-      sourcemap: true,
+      sourcemap: false,
       lib: {
         entry: resolve('src/main/main.ts'),
         formats: ['cjs'],
@@ -23,11 +22,10 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
     resolve: { alias: sharedAlias },
     build: {
       outDir: resolve('out/preload'),
-      sourcemap: true,
+      sourcemap: false,
       lib: {
         entry: resolve('src/main/preload.ts'),
         formats: ['cjs'],
@@ -44,7 +42,7 @@ export default defineConfig({
     build: {
       outDir: resolve('out/renderer'),
       emptyOutDir: true,
-      sourcemap: true,
+      sourcemap: false,
       rollupOptions: {
         input: resolve('src/renderer/index.html'),
       },

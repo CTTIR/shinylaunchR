@@ -1,11 +1,9 @@
-/*
- * Copyright 2026 Raban Heller
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { useEffect, useState } from 'react';
+/* Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0 */
+import { useEffect, useRef, useState } from 'react';
 import type { AppSettings } from '@shared/types';
 import { api } from '../lib/api';
+import { useFocusTrap } from '../lib/useFocusTrap';
 
 export function SettingsPanel({
   onClose,
@@ -14,131 +12,206 @@ export function SettingsPanel({
   onClose: () => void;
   onSettingsChanged: (s: AppSettings) => void;
 }) {
-  const [s, setS] = useState<AppSettings | null>(null);
-
-  useEffect(() => {
-    void api.getSettings().then(setS);
-  }, []);
-
-  const patch = async (p: Partial<AppSettings>) => {
-    const next = await api.setSettings(p);
-    setS(next);
-    onSettingsChanged(next);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const trap = useFocusTrap<HTMLDivElement>();
+  const load = async () => {
+    try {
+      setSettings(await api.getSettings());
+      setError('');
+    } catch (e) {
+      setError(String(e));
+    }
   };
-
-  if (!s) return null;
-
+  useEffect(() => {
+    void load();
+  }, []);
+  const patch = async (value: Partial<AppSettings>, key?: string) => {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const next = await api.setSettings(value);
+      setSettings(next);
+      onSettingsChanged(next);
+      if (key)
+        setDraft((d) => {
+          const copy = { ...d };
+          delete copy[key];
+          return copy;
+        });
+    } catch (e) {
+      setError(
+        `${String(e)} Correct the value and press Enter or leave the field to retry.`,
+      );
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  };
+  const field = (
+    key:
+      | 'defaultWindowWidth'
+      | 'defaultWindowHeight'
+      | 'portRangeStart'
+      | 'portRangeEnd'
+      | 'cranMirror',
+    label: string,
+  ) => {
+    const numeric = key !== 'cranMirror';
+    const commit = () => {
+      if (!(key in draft)) return;
+      const value = draft[key]!.trim();
+      if (!value || (numeric && !Number.isInteger(Number(value)))) {
+        setError(
+          `${label} requires ${numeric ? 'a whole number' : 'an HTTPS URL'}.`,
+        );
+        return;
+      }
+      void patch({ [key]: numeric ? Number(value) : value }, key);
+    };
+    return (
+      <div className="field">
+        <label htmlFor={key}>{label}</label>
+        <input
+          id={key}
+          type={numeric ? 'number' : 'text'}
+          value={draft[key] ?? String(settings![key])}
+          onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commit();
+            }
+          }}
+        />
+      </div>
+    );
+  };
+  const storage = async (
+    fn: () => Promise<{ ok: boolean; message?: string }>,
+  ) => {
+    try {
+      const result = await fn();
+      if (!result.ok) throw new Error(result.message || 'Action failed');
+      setError('');
+    } catch (e) {
+      setError(String(e));
+    }
+  };
   return (
-    <div className="panel">
+    <div
+      className="panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Settings"
+      tabIndex={-1}
+      ref={trap}
+    >
       <div className="panel-header">
         <h2>Settings</h2>
-        <button className="btn ghost" aria-label="Close panel" onClick={onClose}>
+        <button
+          className="btn ghost"
+          aria-label="Close panel"
+          onClick={onClose}
+        >
           ✕
         </button>
       </div>
       <div className="panel-body">
-        <div className="section-title">General</div>
-        <div className="field">
-          <label>Theme</label>
-          <select value={s.theme} onChange={(e) => patch({ theme: e.target.value as AppSettings['theme'] })}>
-            <option value="system">System</option>
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-          </select>
-        </div>
-        <div className="row" style={{ gap: 12 }}>
-          <div className="field" style={{ flex: 1 }}>
-            <label>Window width</label>
-            <input
-              type="number"
-              value={s.defaultWindowWidth}
-              onChange={(e) => patch({ defaultWindowWidth: Number(e.target.value) })}
-            />
-          </div>
-          <div className="field" style={{ flex: 1 }}>
-            <label>Window height</label>
-            <input
-              type="number"
-              value={s.defaultWindowHeight}
-              onChange={(e) => patch({ defaultWindowHeight: Number(e.target.value) })}
-            />
-          </div>
-        </div>
-        <div className="field">
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={s.startupLaunchLast}
-              onChange={(e) => patch({ startupLaunchLast: e.target.checked })}
-            />
-            Re-launch last app on startup
-          </label>
-        </div>
-
-        <hr className="sep" />
-        <div className="section-title">Ports</div>
-        <div className="field">
-          <label>Port behaviour</label>
-          <select
-            value={s.portBehavior}
-            onChange={(e) => patch({ portBehavior: e.target.value as AppSettings['portBehavior'] })}
-          >
-            <option value="auto">Auto (OS-assigned)</option>
-            <option value="range">Within a range</option>
-          </select>
-        </div>
-        {s.portBehavior === 'range' && (
-          <div className="row" style={{ gap: 12 }}>
-            <div className="field" style={{ flex: 1 }}>
-              <label>Range start</label>
-              <input
-                type="number"
-                value={s.portRangeStart}
-                onChange={(e) => patch({ portRangeStart: Number(e.target.value) })}
-              />
-            </div>
-            <div className="field" style={{ flex: 1 }}>
-              <label>Range end</label>
-              <input
-                type="number"
-                value={s.portRangeEnd}
-                onChange={(e) => patch({ portRangeEnd: Number(e.target.value) })}
-              />
-            </div>
-          </div>
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
         )}
-
-        <hr className="sep" />
-        <div className="section-title">Sources</div>
-        <div className="field">
-          <label>CRAN mirror</label>
-          <input
-            type="text"
-            value={s.cranMirror}
-            onChange={(e) => patch({ cranMirror: e.target.value })}
-          />
-        </div>
-        <div className="field">
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={s.preferPak}
-              onChange={(e) => patch({ preferPak: e.target.checked })}
-            />
-            Prefer <code style={{ marginLeft: 4 }}>pak</code> for GitHub installs (else remotes)
-          </label>
-        </div>
-
-        <hr className="sep" />
-        <div className="section-title">Storage</div>
-        <div className="row" style={{ gap: 8 }}>
-          <button className="btn" onClick={() => void api.openUserData()}>
-            Open data folder
+        {!settings ? (
+          <button className="btn" onClick={load}>
+            Retry loading settings
           </button>
-          <button className="btn" onClick={() => void api.clearIconCache()}>
-            Clear icon cache
-          </button>
-        </div>
+        ) : (
+          <>
+            <fieldset disabled={busy} style={{ border: 0, padding: 0 }}>
+              <div className="field">
+                <label htmlFor="theme">Theme</label>
+                <select
+                  id="theme"
+                  value={settings.theme}
+                  onChange={(e) =>
+                    void patch({
+                      theme: e.target.value as AppSettings['theme'],
+                    })
+                  }
+                >
+                  <option value="system">System</option>
+                  <option value="dark">Dark</option>
+                  <option value="light">Light</option>
+                </select>
+              </div>
+              {field('defaultWindowWidth', 'Window width')}
+              {field('defaultWindowHeight', 'Window height')}
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={settings.startupLaunchLast}
+                  onChange={(e) =>
+                    void patch({ startupLaunchLast: e.target.checked })
+                  }
+                />
+                Re-launch last app on startup
+              </label>
+              <div className="field">
+                <label htmlFor="port-behaviour">Port behaviour</label>
+                <select
+                  id="port-behaviour"
+                  value={settings.portBehavior}
+                  onChange={(e) =>
+                    void patch({
+                      portBehavior: e.target
+                        .value as AppSettings['portBehavior'],
+                    })
+                  }
+                >
+                  <option value="auto">Auto (OS-assigned)</option>
+                  <option value="range">Within a range</option>
+                </select>
+              </div>
+              {settings.portBehavior === 'range' && (
+                <>
+                  {field('portRangeStart', 'Range start')}
+                  {field('portRangeEnd', 'Range end')}
+                </>
+              )}
+              {field('cranMirror', 'CRAN mirror')}
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={settings.preferPak}
+                  onChange={(e) => void patch({ preferPak: e.target.checked })}
+                />
+                Prefer pak for GitHub installs (else remotes)
+              </label>
+            </fieldset>
+            <p className="hint">
+              Text and number changes save on Enter or when you leave the field.
+            </p>
+            <div className="row">
+              <button className="btn" onClick={() => storage(api.openUserData)}>
+                Open data folder
+              </button>
+              <button
+                className="btn"
+                onClick={() => storage(api.clearIconCache)}
+              >
+                Clear automatic icon cache
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

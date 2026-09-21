@@ -1,106 +1,224 @@
-import { describe, expect, it, vi } from 'vitest';
-import {
-  buildLaunchScript,
-  buildRunAppScript,
-  defaultKillTree,
-  ShinySupervisor,
-} from '../src/main/shiny-supervisor';
-import { PidLedger } from '../src/main/pid-ledger';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ChildProcess } from 'node:child_process';
+import { ShinySupervisor } from '../src/main/shiny-supervisor';
+import type { RRuntimeManager } from '../src/main/r-runtime';
+import type {
+  ManagedProcess,
+  ProcessResult,
+  RunOptions,
+} from '../src/main/process-manager';
+import { getFreePort, isPortOpen, waitForPort } from '../src/main/port';
+import { DEFAULT_SETTINGS, type AppEntry } from '../src/shared/types';
 
-describe('buildLaunchScript', () => {
-  it('builds a headless, fixed-port, fully-qualified launch expression', () => {
-    const s = buildLaunchScript('molpathR', 'mp_run_app', 8123);
-    expect(s).toContain('shiny.port = 8123');
-    expect(s).toContain('shiny.launch.browser = FALSE');
-    expect(s).toContain('library(molpathR)');
-    expect(s).toContain('molpathR::mp_run_app()');
+vi.mock('../src/main/port', () => ({
+  getFreePort: vi.fn(),
+  isPortOpen: vi.fn(),
+  waitForPort: vi.fn(),
+}));
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
   });
-
-  it('rejects an invalid package or function (no injection surface)', () => {
-    expect(() => buildLaunchScript('bad name', 'fun', 8000)).toThrow();
-    expect(() => buildLaunchScript('pkg', 'fun()', 8000)).toThrow();
-    expect(() => buildLaunchScript('pkg', 'system("x")', 8000)).toThrow();
+  return { promise, resolve };
+}
+function processFixture() {
+  const completion = deferred<ProcessResult>();
+  let alive = true;
+  const exit = (code = 0) => {
+    alive = false;
+    completion.resolve({ code, stdout: '', stderr: '' });
+  };
+  const stop = vi.fn(async () => {
+    exit();
   });
+  const managed: ManagedProcess = {
+    child: {} as ChildProcess,
+    done: completion.promise,
+    stop,
+    running: () => alive,
+  };
+  return { managed, exit, stop };
+}
+function runtimeFixture(children: ReturnType<typeof processFixture>[]) {
+  let index = 0;
+  const startScript = vi.fn(
+    (_path: string, _script: string, _options: RunOptions) =>
+      children[index++]!.managed,
+  );
+  const runtime = {
+    ready: vi.fn(async () => ({
+      rPath: '/fixture/Rscript',
+      source: 'custom',
+      version: '4.6.0',
+      arch: 'x86_64',
+    })),
+    childEnv: (env: NodeJS.ProcessEnv) => env,
+    processes: { startScript },
+  };
+  return { runtime: runtime as unknown as RRuntimeManager, startScript };
+}
+const app: AppEntry = {
+  id: 'b80eb97d-4a11-4a56-8b4f-bbc813277461',
+  name: 'Fixture',
+  pkg: 'shiny',
+  fun: 'runApp',
+  source: { kind: 'cran' },
+  createdAt: '2026-09-21',
+  installed: true,
+};
+beforeEach(() => {
+  vi.clearAllMocks();
+  let port = 8400;
+  vi.mocked(getFreePort).mockImplementation(async () => port++);
+  vi.mocked(isPortOpen).mockResolvedValue(false);
+  vi.mocked(waitForPort).mockResolvedValue(true);
 });
 
-describe('buildRunAppScript', () => {
-  it('runs a staged directory headless on a fixed port (forward slashes)', () => {
-    const s = buildRunAppScript('C:\\Users\\me\\AppData\\apps\\abc', 8200);
-    expect(s).toContain('shiny.port = 8200');
-    expect(s).toContain('shiny.launch.browser = FALSE');
-    expect(s).toContain('shiny::runApp("C:/Users/me/AppData/apps/abc")');
-  });
-
-  it('rejects a path that could break out of the R string literal', () => {
-    expect(() => buildRunAppScript('dir"); system("x', 8000)).toThrow();
-    expect(() => buildRunAppScript('', 8000)).toThrow();
-  });
-});
-
-describe('defaultKillTree', () => {
-  it('uses taskkill /T on Windows', () => {
-    const spawnFn = vi.fn();
-    const killFn = vi.fn();
-    defaultKillTree(4321, 'win32', { spawnFn: spawnFn as never, killFn });
-    expect(spawnFn).toHaveBeenCalledTimes(1);
-    const [cmd, args] = spawnFn.mock.calls[0]!;
-    expect(cmd).toBe('taskkill');
-    expect(args).toEqual(['/pid', '4321', '/T', '/F']);
-    expect(killFn).not.toHaveBeenCalled();
-  });
-
-  it('signals the process group on POSIX', () => {
-    const spawnFn = vi.fn();
-    const killFn = vi.fn();
-    defaultKillTree(4321, 'linux', { spawnFn: spawnFn as never, killFn });
-    expect(spawnFn).not.toHaveBeenCalled();
-    expect(killFn).toHaveBeenCalledWith(-4321, 'SIGTERM');
-  });
-
-  it('falls back to the bare pid if the group signal throws', () => {
-    const killFn = vi.fn((pid: number) => {
-      if (pid < 0) throw new Error('no such group');
-    });
-    defaultKillTree(4321, 'darwin', { killFn });
-    expect(killFn).toHaveBeenCalledWith(-4321, 'SIGTERM');
-    expect(killFn).toHaveBeenCalledWith(4321, 'SIGTERM');
-  });
-});
-
-describe('ShinySupervisor.reapOrphans', () => {
-  function memLedger(initial: number[]): PidLedger {
-    let content = JSON.stringify(initial);
-    return new PidLedger('/x', {
-      existsSync: () => true,
-      readFileSync: () => content,
-      writeFileSync: (_p, d) => {
-        content = d;
+describe('launch generation ownership', () => {
+  it('joins repeated launches and starts one process until explicitly stopped', async () => {
+    const child = processFixture(),
+      { runtime, startScript } = runtimeFixture([child]);
+    const supervisor = new ShinySupervisor();
+    const first = supervisor.launch(app, runtime, DEFAULT_SETTINGS);
+    const second = supervisor.launch(app, runtime, DEFAULT_SETTINGS);
+    expect(second).toBe(first);
+    expect(await first).toMatchObject({ ok: true, id: app.id, port: 8400 });
+    expect(startScript).toHaveBeenCalledTimes(1);
+    expect(supervisor.statuses()).toEqual([
+      {
+        id: app.id,
+        state: 'running',
+        port: 8400,
+        url: 'http://127.0.0.1:8400',
       },
+    ]);
+    expect(await supervisor.launch(app, runtime, DEFAULT_SETTINGS)).toEqual(
+      await first,
+    );
+    await supervisor.stop(app.id);
+    expect(child.stop).toHaveBeenCalled();
+    expect(supervisor.statuses()).toEqual([]);
+  });
+  it('stop during readiness cancels and drains the owned child', async () => {
+    const child = processFixture(),
+      { runtime, startScript } = runtimeFixture([child]);
+    vi.mocked(waitForPort).mockImplementation(
+      (_port, options) =>
+        new Promise((resolve) => {
+          options?.signal?.addEventListener('abort', () => resolve(false), {
+            once: true,
+          });
+        }),
+    );
+    const supervisor = new ShinySupervisor();
+    const launch = supervisor.launch(app, runtime, DEFAULT_SETTINGS);
+    await vi.waitFor(() => expect(startScript).toHaveBeenCalledTimes(1));
+    await supervisor.stop(app.id);
+    expect(await launch).toMatchObject({ ok: false, id: app.id });
+    expect(child.managed.running()).toBe(false);
+    expect(supervisor.isRunning(app.id)).toBe(false);
+  });
+  it('detects an early exit and reports stderr without waiting for readiness timeout', async () => {
+    const child = processFixture(),
+      { runtime, startScript } = runtimeFixture([child]);
+    vi.mocked(waitForPort).mockReturnValue(new Promise(() => {}));
+    const supervisor = new ShinySupervisor(),
+      launch = supervisor.launch(app, runtime, DEFAULT_SETTINGS);
+    await vi.waitFor(() => expect(startScript).toHaveBeenCalledTimes(1));
+    startScript.mock.calls[0]![2].onLine?.(
+      'Package missing: reinstall the app',
+      'stderr',
+    );
+    child.exit(1);
+    expect(await launch).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('Package missing'),
     });
-  }
-
-  it('kills ledger PIDs that are still our R processes, then clears the ledger', () => {
-    const ledger = memLedger([111, 222]);
-    const killTree = vi.fn();
-    const sup = new ShinySupervisor({ ledger, killTree, isOrphan: () => true });
-    expect(sup.reapOrphans()).toBe(2);
-    expect(killTree).toHaveBeenCalledWith(111);
-    expect(killTree).toHaveBeenCalledWith(222);
-    expect(ledger.list()).toEqual([]);
+    expect(supervisor.statuses()).toEqual([]);
   });
-
-  it('skips PIDs that are no longer our process (guards against PID reuse)', () => {
-    const ledger = memLedger([111, 999]);
-    const killTree = vi.fn();
-    // 999 was recycled by some unrelated program — must not be killed.
-    const sup = new ShinySupervisor({ ledger, killTree, isOrphan: (pid) => pid === 111 });
-    expect(sup.reapOrphans()).toBe(1);
-    expect(killTree).toHaveBeenCalledWith(111);
-    expect(killTree).not.toHaveBeenCalledWith(999);
-    expect(ledger.list()).toEqual([]);
+  it('ignores late readiness from a stopped generation after relaunch', async () => {
+    const old = processFixture(),
+      current = processFixture();
+    const { runtime, startScript } = runtimeFixture([old, current]);
+    const staleReadiness = deferred<boolean>();
+    vi.mocked(waitForPort)
+      .mockReturnValueOnce(staleReadiness.promise)
+      .mockResolvedValueOnce(true);
+    const supervisor = new ShinySupervisor(),
+      previous = supervisor.launch(app, runtime, DEFAULT_SETTINGS);
+    await vi.waitFor(() => expect(startScript).toHaveBeenCalledTimes(1));
+    await supervisor.stop(app.id);
+    expect((await previous).ok).toBe(false);
+    const next = await supervisor.launch(app, runtime, DEFAULT_SETTINGS);
+    expect(next).toMatchObject({ ok: true, port: 8401 });
+    staleReadiness.resolve(false);
+    old.exit(1);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(supervisor.getRunning(app.id)?.port).toBe(8401);
+    expect(current.stop).not.toHaveBeenCalled();
+    await supervisor.stopAll();
+    expect(current.managed.running()).toBe(false);
   });
-
-  it('is a no-op with no ledger configured', () => {
-    expect(new ShinySupervisor().reapOrphans()).toBe(0);
+  it('does not spawn a process when cancellation occurs during runtime verification', async () => {
+    const child = processFixture(),
+      { runtime, startScript } = runtimeFixture([child]);
+    const checked = deferred<{
+      rPath: string;
+      source: 'custom';
+      version: string;
+      arch: string;
+    }>();
+    vi.mocked(runtime.ready).mockReturnValue(checked.promise);
+    const supervisor = new ShinySupervisor(),
+      controller = new AbortController();
+    const launch = supervisor.launch(
+      app,
+      runtime,
+      DEFAULT_SETTINGS,
+      controller.signal,
+    );
+    controller.abort();
+    checked.resolve({
+      rPath: '/fixture/Rscript',
+      source: 'custom',
+      version: '4.6.0',
+      arch: 'x86_64',
+    });
+    expect((await launch).ok).toBe(false);
+    expect(startScript).not.toHaveBeenCalled();
+    expect(supervisor.statuses()).toEqual([]);
+  });
+  it('reserves a fixed port once across concurrent apps and releases it after stop', async () => {
+    const firstChild = processFixture(),
+      nextChild = processFixture();
+    const { runtime, startScript } = runtimeFixture([firstChild, nextChild]);
+    const supervisor = new ShinySupervisor();
+    const fixed = { ...app, fixedPort: 8500 };
+    expect((await supervisor.launch(fixed, runtime, DEFAULT_SETTINGS)).ok).toBe(
+      true,
+    );
+    expect(
+      (
+        await supervisor.launch(
+          { ...fixed, id: 'second' },
+          runtime,
+          DEFAULT_SETTINGS,
+        )
+      ).ok,
+    ).toBe(false);
+    expect(startScript).toHaveBeenCalledTimes(1);
+    await supervisor.stop(app.id);
+    expect(
+      (
+        await supervisor.launch(
+          { ...fixed, id: 'second' },
+          runtime,
+          DEFAULT_SETTINGS,
+        )
+      ).ok,
+    ).toBe(true);
+    await supervisor.stopAll();
   });
 });

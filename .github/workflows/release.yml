@@ -1,36 +1,30 @@
-# .github/workflows/release.yml
-#
-# Builds shinylaunchR installers for Windows, macOS, and Linux on every version
-# tag and publishes them to a GitHub Release.
-#
-# Artifacts produced:
-#   Windows : shinylaunchR-Setup-<ver>.exe (NSIS) + portable .exe
-#   macOS   : shinylaunchR-<ver>.dmg (+ .zip for auto-update), x64 + arm64
-#   Linux   : shinylaunchR-<ver>.AppImage + .deb
-#
-# Signing is OPT-IN. With the signing secrets unset, the build still runs and
-# produces UNSIGNED artifacts (which trigger a first-launch Gatekeeper /
-# SmartScreen prompt the user clicks past). Populate the secrets later and the
-# same workflow signs + notarizes automatically — no edits needed.
-#
-# Trigger:
-#   git tag v0.1.0
-#   git push origin v0.1.0
-# (Or run manually via the Actions tab — workflow_dispatch.)
-
 name: release
-
 on:
   push:
-    tags:
-      - "v*.*.*"
+    tags: ['v*.*.*']
   workflow_dispatch: {}
-
 permissions:
-  contents: write # needed to create the GitHub Release
-
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
+  metadata:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+      - name: Verify tag and metadata agree
+        id: version
+        run: node scripts/verify-release.mjs
   build:
+    needs: metadata
     strategy:
       fail-fast: false
       matrix:
@@ -41,49 +35,32 @@ jobs:
             platform: win
           - os: ubuntu-latest
             platform: linux
-
+    timeout-minutes: 60
     runs-on: ${{ matrix.os }}
     name: build (${{ matrix.platform }})
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      # Quality gate before producing artifacts — never ship a red build.
-      - name: Typecheck / lint / test
-        run: |
-          npm run typecheck
-          npm run lint
-          npm run test
-
-      # Compile main/preload/renderer into out/ (+ verify-build guard) BEFORE
-      # packaging — electron-builder only packages what already exists; without
-      # this the app.asar ships without out/main/main.js and fails to launch.
-      - name: Build bundles
-        run: npm run build
-
-      # --- Build & publish -------------------------------------------------
-      # electron-builder reads the matching target from electron-builder.yml.
-      # --publish always: uploads artifacts to the GitHub Release for this tag.
-      # GH_TOKEN is the built-in token; no PAT needed for same-repo releases.
-
-      - name: Build & publish (macOS)
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Unit and regression tests
+        timeout-minutes: 10
+        run: npx vitest run --reporter=default --reporter=json --outputFile=.qualification/unit-tests.json
+      - name: Install R for isolated integration checks
+        uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2
+      - name: Fresh CRAN and pak libraries and real Shiny lifecycle
+        timeout-minutes: 22
+        run: npx vitest run test/integration-r.test.ts --reporter=default --reporter=json --outputFile=.qualification/real-r.json
+        env:
+          SLR_RUN_R_INTEGRATION: '1'
+      - run: npm run build
+      - name: Build macOS artifacts without publishing
         if: matrix.platform == 'mac'
-        # Only export the signing vars when a certificate is actually present.
-        # GitHub passes an unset secret as an EMPTY string, and electron-builder
-        # treats an empty CSC_LINK as a cert path — it resolves to the repo root
-        # and fails with "not a file". With no cert we instead disable signing
-        # auto-discovery and ship an unsigned build; populate the secrets later
-        # and the same step signs + notarizes.
+        shell: bash
         run: |
           if [ -n "$MAC_CSC_LINK" ]; then
             export CSC_LINK="$MAC_CSC_LINK"
@@ -91,47 +68,96 @@ jobs:
           else
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
-          npx electron-builder --mac --publish always
+          npx electron-builder --mac --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # --- Apple signing + notarization (opt-in; safe to leave unset) ---
-          # MAC_CSC_LINK: base64 of your Developer ID Application .p12
-          # MAC_CSC_KEY_PASSWORD: the .p12 password
-          # APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID: notarization
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-      - name: Build & publish (Windows)
+      - name: Build Windows artifacts without publishing
         if: matrix.platform == 'win'
-        run: npx electron-builder --win --publish always
+        shell: pwsh
+        run: |
+          if ($env:WIN_CSC_LINK) {
+            $env:CSC_LINK = $env:WIN_CSC_LINK
+            $env:CSC_KEY_PASSWORD = $env:WIN_CSC_KEY_PASSWORD
+          } else {
+            $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
+          }
+          npx electron-builder --win --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # --- Windows code signing (opt-in; safe to leave unset) ----------
-          # CSC_LINK: base64 of your code-signing .pfx
-          # CSC_KEY_PASSWORD: the .pfx password
-          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-
-      - name: Build & publish (Linux)
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      - name: Build Linux artifacts without publishing
         if: matrix.platform == 'linux'
-        run: npx electron-builder --linux --publish always
+        run: npx electron-builder --linux --publish never
+      - name: Configure sandbox helper on the disposable Linux runner
+        if: runner.os == 'Linux'
+        run: |
+          test -f dist/linux-unpacked/chrome-sandbox
+          test ! -L dist/linux-unpacked/chrome-sandbox
+          sudo chown root:root dist/linux-unpacked/chrome-sandbox
+          sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
+      - name: Packaged smoke (Linux, sandbox enabled)
+        if: runner.os == 'Linux'
+        timeout-minutes: 3
+        run: xvfb-run -a node scripts/smoke-packaged.mjs --auto
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Keep a copy on the workflow run too (handy for debugging a tag).
-      - name: Upload artifacts to the run
+          SLR_SMOKE_RECEIPT: .qualification/packaged-smoke.json
+      - name: Packaged smoke (Windows and macOS)
+        if: runner.os != 'Linux'
+        timeout-minutes: 3
+        run: node scripts/smoke-packaged.mjs --auto
+        env:
+          SLR_SMOKE_RECEIPT: .qualification/packaged-smoke.json
+      - name: Preserve qualification receipts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: shinylaunchR-${{ matrix.platform }}
+          name: qualification-release-${{ matrix.os }}
+          path: .qualification/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload tested build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ matrix.platform }}
           path: |
             dist/*.exe
             dist/*.dmg
             dist/*.zip
             dist/*.AppImage
             dist/*.deb
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 14
+  publish-draft:
+    needs: [metadata, build]
+    timeout-minutes: 10
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          pattern: release-*
+          path: release-artifacts
+          merge-multiple: true
+      - name: Create draft only after every platform succeeds
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+          IS_PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artifacts=(release-artifacts/*)
+          test "${#artifacts[@]}" -gt 0
+          flags=(--verify-tag --draft --title "$RELEASE_TAG" --notes-file .github/release-draft.md)
+          if [ "$IS_PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" "${artifacts[@]}" "${flags[@]}"

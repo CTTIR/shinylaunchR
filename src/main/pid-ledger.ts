@@ -1,64 +1,45 @@
-/*
- * Copyright 2026 Raban Heller
- * SPDX-License-Identifier: Apache-2.0
- */
+/* Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0 */
+import { readAtomicJson, writeAtomicJson } from './atomic-store';
 
-/**
- * Crash-safe ledger of the OS process IDs we have spawned for running Shiny
- * apps. It is persisted to a small JSON file so that if the app is force-killed
- * or crashes — skipping the normal `stopAll` on quit — the NEXT startup can find
- * and reap the R processes left behind. On Windows those orphans hold any
- * compiled-package `.dll` they loaded locked, which then blocks every reinstall
- * with "Failed to move installed package"; reaping them on startup is what keeps
- * the managed library installable across an unclean shutdown.
- *
- * All I/O is best-effort: a missing or unreadable ledger only costs us the
- * convenience of orphan reaping, so it must never throw into the caller.
- */
-import fs from 'node:fs';
-
-export interface LedgerFs {
-  existsSync(p: string): boolean;
-  readFileSync(p: string, enc: 'utf8'): string;
-  writeFileSync(p: string, data: string): void;
+export interface ProcessIdentity {
+  pid: number;
+  started: string;
+  executable: string;
+  marker: string;
 }
-
 export class PidLedger {
-  constructor(
-    private readonly file: string,
-    private readonly fsLike: LedgerFs = fs,
-  ) {}
-
-  /** Currently-recorded PIDs (deduped, positive integers only). */
-  list(): number[] {
-    try {
-      if (!this.fsLike.existsSync(this.file)) return [];
-      const data: unknown = JSON.parse(this.fsLike.readFileSync(this.file, 'utf8'));
-      if (!Array.isArray(data)) return [];
-      return [...new Set(data.filter((n): n is number => Number.isInteger(n) && (n as number) > 0))];
-    } catch {
-      return [];
-    }
+  constructor(private file: string) {}
+  list(): ProcessIdentity[] {
+    return readAtomicJson(
+      this.file,
+      (data: unknown) => {
+        if (!Array.isArray(data)) throw new Error('Invalid PID ledger schema');
+        // Legacy PID-only records cannot establish ownership and must never be reaped.
+        return data.filter(
+          (r): r is ProcessIdentity =>
+            !!r &&
+            typeof r === 'object' &&
+            Number.isInteger(r.pid) &&
+            r.pid > 0 &&
+            typeof r.started === 'string' &&
+            !!r.started &&
+            typeof r.executable === 'string' &&
+            !!r.executable &&
+            typeof r.marker === 'string' &&
+            /^[a-f0-9-]{36}$/.test(r.marker),
+        );
+      },
+      () => [],
+    );
   }
-
-  private write(pids: number[]): void {
-    try {
-      this.fsLike.writeFileSync(this.file, JSON.stringify([...new Set(pids)]));
-    } catch {
-      // best-effort persistence
-    }
+  add(record: ProcessIdentity): void {
+    this.write([...this.list().filter((r) => r.pid !== record.pid), record]);
   }
-
-  add(pid: number): void {
-    if (!Number.isInteger(pid) || pid <= 0) return;
-    this.write([...this.list(), pid]);
-  }
-
   remove(pid: number): void {
-    this.write(this.list().filter((p) => p !== pid));
+    this.write(this.list().filter((r) => r.pid !== pid));
   }
-
-  clear(): void {
-    this.write([]);
+  private write(records: ProcessIdentity[]): void {
+    writeAtomicJson(this.file, records);
   }
 }

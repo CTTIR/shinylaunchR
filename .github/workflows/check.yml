@@ -1,0 +1,74 @@
+name: check
+on:
+  pull_request:
+  push:
+    branches: [main, 'refinement/**']
+permissions:
+  contents: read
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    timeout-minutes: 60
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Unit and regression tests
+        timeout-minutes: 10
+        run: npx vitest run --reporter=default --reporter=json --outputFile=.qualification/unit-tests.json
+      - name: Install R for isolated integration checks
+        uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2
+      - name: Fresh CRAN and pak libraries and real Shiny lifecycle
+        timeout-minutes: 22
+        run: npx vitest run test/integration-r.test.ts --reporter=default --reporter=json --outputFile=.qualification/real-r.json
+        env:
+          SLR_RUN_R_INTEGRATION: '1'
+      - run: npm run package:dir
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Configure sandbox helper on the disposable Linux runner
+        if: runner.os == 'Linux'
+        run: |
+          test -f dist/linux-unpacked/chrome-sandbox
+          test ! -L dist/linux-unpacked/chrome-sandbox
+          sudo chown root:root dist/linux-unpacked/chrome-sandbox
+          sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
+      - name: Packaged smoke (Linux)
+        if: runner.os == 'Linux'
+        timeout-minutes: 3
+        run: xvfb-run -a node scripts/smoke-packaged.mjs --auto
+        env:
+          SLR_SMOKE_RECEIPT: .qualification/packaged-smoke.json
+      - name: Packaged smoke (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 3
+        run: node scripts/smoke-packaged.mjs --auto
+        env:
+          SLR_SMOKE_RECEIPT: .qualification/packaged-smoke.json
+      - name: Packaged smoke (macOS)
+        if: runner.os == 'macOS'
+        timeout-minutes: 3
+        run: node scripts/smoke-packaged.mjs --auto
+        env:
+          SLR_SMOKE_RECEIPT: .qualification/packaged-smoke.json
+      - name: Preserve qualification receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: qualification-check-${{ matrix.os }}
+          path: .qualification/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14

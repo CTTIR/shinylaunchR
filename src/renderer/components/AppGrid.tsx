@@ -3,7 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { appFamily, type AppEntry, type AppFamily, type AppStatus } from '@shared/types';
+import {
+  appFamily,
+  type AppEntry,
+  type AppFamily,
+  type AppStatus,
+} from '@shared/types';
 import { AppTile } from './AppTile';
 
 export interface AppGridProps {
@@ -58,7 +63,9 @@ export function AppGrid(props: AppGridProps) {
   return (
     <div className="grid-sections">
       {SECTIONS.map((section) => {
-        const apps = props.apps.filter((a) => appFamily(a.source) === section.family);
+        const apps = props.apps.filter(
+          (a) => appFamily(a.source) === section.family,
+        );
         return (
           <section className="grid-group" key={section.family}>
             <div className="grid-group-head">
@@ -77,7 +84,10 @@ export function AppGrid(props: AppGridProps) {
                   onContextMenu={props.onContextMenu}
                 />
               ))}
-              <AddTile label={section.addLabel} onAdd={() => props.onAdd(section.family)} />
+              <AddTile
+                label={section.addLabel}
+                onAdd={() => props.onAdd(section.family)}
+              />
             </div>
           </section>
         );

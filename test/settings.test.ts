@@ -33,21 +33,21 @@ describe('settings', () => {
 
   it('clamps window dimensions to sane bounds', () => {
     initSettings(dir);
-    const s = setSettings({ defaultWindowWidth: 99999, defaultWindowHeight: 1 });
-    expect(s.defaultWindowWidth).toBeLessThanOrEqual(4000);
-    expect(s.defaultWindowHeight).toBeGreaterThanOrEqual(300);
+    expect(() =>
+      setSettings({ defaultWindowWidth: 99999, defaultWindowHeight: 1 }),
+    ).toThrow();
   });
 
   it('repairs an invalid CRAN mirror back to the default', () => {
     initSettings(dir);
-    const s = setSettings({ cranMirror: 'not a url; system("x")' });
-    expect(s.cranMirror).toBe(DEFAULT_SETTINGS.cranMirror);
+    expect(() =>
+      setSettings({ cranMirror: 'not a url; system("x")' }),
+    ).toThrow();
   });
 
   it('rejects a non-http mirror', () => {
     initSettings(dir);
-    const s = setSettings({ cranMirror: 'file:///etc/passwd' });
-    expect(s.cranMirror).toBe(DEFAULT_SETTINGS.cranMirror);
+    expect(() => setSettings({ cranMirror: 'file:///etc/passwd' })).toThrow();
   });
 
   it('falls back to defaults on a corrupt file', () => {
@@ -66,4 +66,29 @@ describe('settings', () => {
     expect(s.preferPak).toBe(false); // valid override kept
     expect((s as unknown as Record<string, unknown>).bogus).toBeUndefined();
   });
+});
+
+it('rejects reversed, nonfinite, fractional and out-of-range ports without saving', () => {
+  initSettings(dir);
+  for (const patch of [
+    { portRangeStart: 9000, portRangeEnd: 8000 },
+    { portRangeStart: NaN },
+    { portRangeEnd: Infinity },
+    { portRangeStart: 1.5 },
+    { portRangeEnd: 65536 },
+  ]) {
+    expect(() => setSettings(patch)).toThrow();
+    expect(getSettings()).toEqual(DEFAULT_SETTINGS);
+  }
+});
+it('rejects HTTP and URL credentials before persisting CRAN settings', () => {
+  initSettings(dir);
+  for (const cranMirror of [
+    'http://cran.example.org',
+    'https://user:password@cran.example.org',
+    'https://cran.example.org\n',
+  ]) {
+    expect(() => setSettings({ cranMirror })).toThrow(/CRAN mirror/);
+    expect(getSettings().cranMirror).toBe(DEFAULT_SETTINGS.cranMirror);
+  }
 });

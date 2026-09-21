@@ -1,320 +1,203 @@
-/*
- * Copyright 2026 Raban Heller
- * SPDX-License-Identifier: Apache-2.0
- */
-
-/**
- * Supervises one child Rscript process per launched Shiny app, tracks the
- * (window ↔ process ↔ port) triple, and guarantees the whole process tree is
- * killed on stop/quit — no orphaned R processes ever.
- */
-import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import type { BrowserWindow } from 'electron';
+/* Copyright 2026 Raban Heller
+ * SPDX-License-Identifier: Apache-2.0 */
 import {
   isValidName,
   isValidPkg,
   type AppEntry,
   type AppSettings,
-  type AppStatus,
   type LaunchResult,
+  type AppStatus,
 } from '@shared/types';
-import { logger } from './logger';
 import type { RRuntimeManager } from './r-runtime';
-import type { PidLedger } from './pid-ledger';
-import { findFreePortInRange, getFreePort, isPortOpen, waitForPort } from './port';
-
-interface RunningApp {
+import type { ManagedProcess } from './process-manager';
+import { LAUNCH_SCRIPT } from './r-scripts';
+import { getFreePort, isPortOpen, waitForPort } from './port';
+import { logger } from './logger';
+interface Running {
   id: string;
-  pid?: number;
-  port: number;
-  url: string;
-  child: ChildProcess;
-  window?: BrowserWindow;
+  controller: AbortController;
+  promise: Promise<LaunchResult>;
+  process?: ManagedProcess;
+  port?: number;
+  url?: string;
+  ready: boolean;
 }
-
-/** Build the R expression that starts a PACKAGE app headless on a fixed port. */
-export function buildLaunchScript(pkg: string, fun: string, port: number): string {
-  if (!isValidPkg(pkg)) throw new Error(`invalid package: ${pkg}`);
-  if (!isValidName(fun)) throw new Error(`invalid function: ${fun}`);
-  return [
-    `options(shiny.port = ${port}, shiny.host = "127.0.0.1", shiny.launch.browser = FALSE)`,
-    `library(${pkg})`,
-    `${pkg}::${fun}()`,
-  ].join('; ');
-}
-
-/**
- * Build the R expression that runs a SHINY FILE / `source` app from its staged
- * directory headless on a fixed port. `appDir` is an absolute on-disk path; it
- * is emitted as a forward-slash R string literal (R accepts these on Windows)
- * and rejected if it could break out of the literal.
- */
-export function buildRunAppScript(appDir: string, port: number): string {
-  const safe = appDir.replace(/\\/g, '/');
-  if (!safe || /["\n\r]/.test(safe)) throw new Error(`invalid app directory: ${appDir}`);
-  return [
-    `options(shiny.port = ${port}, shiny.host = "127.0.0.1", shiny.launch.browser = FALSE)`,
-    `shiny::runApp("${safe}")`,
-  ].join('; ');
-}
-
-export interface SupervisorDeps {
-  spawner?: (cmd: string, args: string[], options: SpawnOptions) => ChildProcess;
-  /** Injectable kill-tree (defaults to a cross-platform implementation). */
-  killTree?: (pid: number, platform?: NodeJS.Platform) => void;
-  /** Crash-safe PID store; when set, enables orphan reaping across restarts. */
-  ledger?: PidLedger;
-  /** Identity guard for reaping: is `pid` still one of *our* R processes? */
-  isOrphan?: (pid: number) => boolean;
-}
-
-/**
- * Best-effort check that `pid` is still alive AND is an R-family process, so a
- * recycled PID (the OS reusing it for an unrelated program after our R crashed)
- * is never killed during orphan reaping. Uses `tasklist` on Windows and `ps`
- * elsewhere; any failure is treated as "not ours" (safer to skip than to kill).
- */
-export function defaultIsOrphanRProcess(
-  pid: number,
-  platform: NodeJS.Platform = process.platform,
-): boolean {
-  try {
-    if (platform === 'win32') {
-      const out =
-        spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/NH', '/FO', 'CSV'], {
-          encoding: 'utf8',
-          windowsHide: true,
-        }).stdout ?? '';
-      return /^"(Rterm|Rscript|R)\.exe"/im.test(out);
-    }
-    const out = spawnSync('ps', ['-p', String(pid), '-o', 'comm='], { encoding: 'utf8' }).stdout ?? '';
-    return /(^|\/)(R|Rscript)$/m.test(out.trim());
-  } catch {
-    return false;
-  }
-}
-
-export interface KillTreeDeps {
-  spawnFn?: (cmd: string, args: string[], options: SpawnOptions) => ChildProcess;
-  killFn?: (pid: number, signal?: NodeJS.Signals | number) => void;
-}
-
-/**
- * Kill a child process and its descendants on any OS. On Windows a parent kill
- * does NOT reap children, so use `taskkill /T`; on POSIX, signal the process
- * group (negative pid — children share the group via the detached spawn).
- * Primitives are injectable so both branches are unit-tested without real procs.
- */
-export function defaultKillTree(
-  pid: number,
-  platform: NodeJS.Platform = process.platform,
-  deps: KillTreeDeps = {},
-): void {
-  const spawnFn = deps.spawnFn ?? spawn;
-  const killFn = deps.killFn ?? ((p, s) => process.kill(p, s));
-  try {
-    if (platform === 'win32') {
-      spawnFn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-    } else {
-      // negative pid kills the whole process group (see detached spawn below)
-      try {
-        killFn(-pid, 'SIGTERM');
-      } catch {
-        killFn(pid, 'SIGTERM');
-      }
-    }
-  } catch {
-    // already gone
-  }
-}
-
 export class ShinySupervisor {
-  private running = new Map<string, RunningApp>();
-  private spawner: (cmd: string, args: string[], options: SpawnOptions) => ChildProcess;
-  private killTree: (pid: number, platform?: NodeJS.Platform) => void;
-  private ledger?: PidLedger;
-  private isOrphan: (pid: number) => boolean;
-  private onStatusChange?: () => void;
-
-  constructor(deps: SupervisorDeps = {}) {
-    this.spawner = deps.spawner ?? spawn;
-    this.killTree = deps.killTree ?? defaultKillTree;
-    this.ledger = deps.ledger;
-    this.isOrphan = deps.isOrphan ?? defaultIsOrphanRProcess;
-  }
-
-  /**
-   * Kill R processes left over from a previous session that crashed without a
-   * clean `stopAll` (so their PIDs are still in the ledger). Each is verified to
-   * still be a live R process before being killed, guarding against PID reuse.
-   * Returns the number reaped. The ledger is cleared afterwards.
-   */
-  reapOrphans(): number {
-    if (!this.ledger) return 0;
-    let killed = 0;
-    for (const pid of this.ledger.list()) {
-      if (this.isOrphan(pid)) {
-        this.killTree(pid);
-        killed++;
-      }
-    }
-    this.ledger.clear();
-    return killed;
-  }
-
+  private running = new Map<string, Running>();
+  private ports = new Set<number>();
+  private portQueue: Promise<void> = Promise.resolve();
+  private changed = () => {};
   setStatusListener(fn: () => void): void {
-    this.onStatusChange = fn;
+    this.changed = fn;
   }
-
   isRunning(id: string): boolean {
     return this.running.has(id);
   }
-
   getRunning(id: string): { port: number; url: string } | undefined {
     const r = this.running.get(id);
-    return r ? { port: r.port, url: r.url } : undefined;
+    return r?.port && r.url ? { port: r.port, url: r.url } : undefined;
   }
-
   statuses(): AppStatus[] {
     return [...this.running.values()].map((r) => ({
       id: r.id,
-      state: 'running' as const,
+      state: r.ready ? 'running' : 'launching',
       port: r.port,
       url: r.url,
     }));
   }
-
-  private async choosePort(entry: AppEntry, settings: AppSettings): Promise<number> {
-    if (entry.fixedPort) {
-      const open = await isPortOpen(entry.fixedPort);
-      if (open) throw new Error(`Fixed port ${entry.fixedPort} is already in use.`);
-      return entry.fixedPort;
-    }
-    if (settings.portBehavior === 'range') {
-      return findFreePortInRange(settings.portRangeStart, settings.portRangeEnd);
-    }
-    return getFreePort();
+  launch(
+    entry: AppEntry,
+    runtime: RRuntimeManager,
+    settings: AppSettings,
+    signal?: AbortSignal,
+  ): Promise<LaunchResult> {
+    const existing = this.running.get(entry.id);
+    if (existing) return existing.promise;
+    const record: Running = {
+      id: entry.id,
+      controller: new AbortController(),
+      promise: Promise.resolve({ ok: false, id: entry.id }),
+      ready: false,
+    };
+    this.running.set(entry.id, record);
+    const abort = () => record.controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    record.promise = this.start(record, entry, runtime, settings).finally(() =>
+      signal?.removeEventListener('abort', abort),
+    );
+    this.changed();
+    return record.promise;
   }
-
-  /** Spawn R, wait for the Shiny server to answer, return the URL. */
-  async launch(
+  private async choosePort(
+    entry: AppEntry,
+    settings: AppSettings,
+    signal: AbortSignal,
+  ): Promise<number> {
+    let release!: () => void;
+    const previous = this.portQueue;
+    this.portQueue = new Promise<void>((r) => {
+      release = r;
+    });
+    await previous;
+    try {
+      signal.throwIfAborted();
+      const candidates = entry.fixedPort
+        ? [entry.fixedPort]
+        : settings.portBehavior === 'range'
+          ? Array.from(
+              { length: settings.portRangeEnd - settings.portRangeStart + 1 },
+              (_, i) => settings.portRangeStart + i,
+            )
+          : [];
+      for (let i = 0; i < (candidates.length || 32); i++) {
+        signal.throwIfAborted();
+        const port = candidates[i] ?? (await getFreePort());
+        if (!Number.isInteger(port) || port < 1 || port > 65535)
+          throw new Error('Invalid port.');
+        if (!this.ports.has(port) && !(await isPortOpen(port))) {
+          this.ports.add(port);
+          return port;
+        }
+      }
+      throw new Error(
+        'No free port available. Choose a different port or range.',
+      );
+    } finally {
+      release();
+    }
+  }
+  private async start(
+    r: Running,
     entry: AppEntry,
     runtime: RRuntimeManager,
     settings: AppSettings,
   ): Promise<LaunchResult> {
-    if (this.running.has(entry.id)) {
-      const r = this.running.get(entry.id)!;
+    let tail = '';
+    try {
+      const resolved = await runtime.ready(r.controller.signal);
+      if (!resolved) throw new Error('R is not available. Open R Runtime.');
+      if (
+        entry.source.kind !== 'source' &&
+        (!entry.pkg ||
+          !entry.fun ||
+          !isValidPkg(entry.pkg) ||
+          !isValidName(entry.fun))
+      )
+        throw new Error('Invalid package launcher.');
+      if (entry.source.kind === 'source' && !entry.stagedPath)
+        throw new Error('Source app is not installed.');
+      r.port = await this.choosePort(entry, settings, r.controller.signal);
+      r.url = `http://127.0.0.1:${r.port}`;
+      r.controller.signal.throwIfAborted();
+      r.process = runtime.processes.startScript(resolved.rPath, LAUNCH_SCRIPT, {
+        owner: entry.id,
+        signal: r.controller.signal,
+        env: runtime.childEnv({
+          SLR_PORT: String(r.port),
+          SLR_KIND: entry.source.kind,
+          SLR_APP_DIR: entry.stagedPath ?? '',
+          SLR_PACKAGE: entry.pkg ?? '',
+          SLR_FUNCTION: entry.fun ?? '',
+        }),
+        onLine: (line, stream) => {
+          if (stream === 'stderr') tail = (tail + line + '\n').slice(-4000);
+          logger.log(
+            stream === 'stderr' ? 'warn' : 'info',
+            'shiny',
+            line,
+            entry.id,
+          );
+        },
+      });
+      const child = r.process;
+      void child.done.then(() => {
+        if (this.running.get(entry.id) === r) {
+          this.running.delete(entry.id);
+          if (r.port) this.ports.delete(r.port);
+          this.changed();
+        }
+        r.controller.abort();
+      });
+      const ready = await Promise.race([
+        waitForPort(r.port, { timeoutMs: 60_000, signal: r.controller.signal }),
+        child.done.then(() => false),
+      ]);
+      if (!ready || !child.running() || r.controller.signal.aborted)
+        throw new Error(
+          `App did not start. Check dependencies or reinstall.${tail ? '\n' + tail.trim() : ''}`,
+        );
+      r.ready = true;
+      this.changed();
       return { ok: true, id: entry.id, port: r.port, url: r.url };
-    }
-    const resolved = runtime.resolveRscript();
-    if (!resolved) {
-      return { ok: false, id: entry.id, message: 'R is not available.' };
-    }
-
-    let port: number;
-    try {
-      port = await this.choosePort(entry, settings);
-    } catch (err) {
-      return { ok: false, id: entry.id, message: String(err) };
-    }
-
-    let script: string;
-    let what: string;
-    try {
-      if (entry.source.kind === 'source') {
-        if (!entry.stagedPath) throw new Error('source app is not staged yet');
-        script = buildRunAppScript(entry.stagedPath, port);
-        what = `runApp("${entry.stagedPath}")`;
-      } else {
-        script = buildLaunchScript(entry.pkg!, entry.fun!, port);
-        what = `${entry.pkg}::${entry.fun}()`;
+    } catch (e) {
+      r.controller.abort();
+      if (r.process) await r.process.stop();
+      if (this.running.get(entry.id) === r) {
+        this.running.delete(entry.id);
+        if (r.port) this.ports.delete(r.port);
+        this.changed();
       }
-    } catch (err) {
-      return { ok: false, id: entry.id, message: String(err) };
-    }
-
-    const url = `http://127.0.0.1:${port}`;
-    logger.info('shiny', `Launching ${what} on ${url}`, entry.id);
-
-    const child = this.spawner(resolved.rPath, ['--vanilla', '-e', script], {
-      env: runtime.childEnv(),
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: process.platform !== 'win32',
-      windowsHide: true,
-    });
-
-    let stderrTail = '';
-    child.stdout?.on('data', (b: Buffer) => {
-      for (const line of b.toString().split(/\r?\n/)) {
-        if (line.trim()) logger.info('shiny', line, entry.id);
-      }
-    });
-    child.stderr?.on('data', (b: Buffer) => {
-      const text = b.toString();
-      stderrTail = (stderrTail + text).slice(-4000);
-      for (const line of text.split(/\r?\n/)) {
-        if (line.trim()) logger.warn('shiny', line, entry.id);
-      }
-    });
-
-    const record: RunningApp = { id: entry.id, pid: child.pid, port, url, child };
-    this.running.set(entry.id, record);
-    if (record.pid) this.ledger?.add(record.pid);
-
-    child.on('close', (code) => {
-      logger.info('shiny', `Process exited (code ${code}).`, entry.id);
-      const r = this.running.get(entry.id);
-      this.running.delete(entry.id);
-      if (record.pid) this.ledger?.remove(record.pid);
-      this.onStatusChange?.();
-      if (r?.window && !r.window.isDestroyed()) {
-        r.window.close();
-      }
-    });
-
-    const ready = await waitForPort(port, { timeoutMs: 60_000 });
-    if (!ready) {
-      this.stop(entry.id);
       return {
         ok: false,
         id: entry.id,
-        message: `Shiny app did not become ready within 60s.${
-          stderrTail ? `\n--- R stderr ---\n${stderrTail.trim()}` : ''
-        }`,
+        message: logger.redact(e instanceof Error ? e.message : String(e)),
       };
     }
-
-    this.onStatusChange?.();
-    return { ok: true, id: entry.id, port, url };
   }
-
-  /** Associate a BrowserWindow so closing one stops the other. */
-  attachWindow(id: string, window: BrowserWindow): void {
-    const r = this.running.get(id);
-    if (r) r.window = window;
-  }
-
-  stop(id: string): void {
+  async stop(id: string): Promise<void> {
     const r = this.running.get(id);
     if (!r) return;
-    logger.info('shiny', 'Stopping app.', id);
-    if (r.pid) {
-      this.killTree(r.pid);
-      this.ledger?.remove(r.pid);
+    r.controller.abort();
+    if (r.process) await r.process.stop();
+    await r.promise;
+    if (this.running.get(id) === r) {
+      this.running.delete(id);
+      if (r.port) this.ports.delete(r.port);
+      this.changed();
     }
-    try {
-      r.child.kill();
-    } catch {
-      // ignore
-    }
-    if (r.window && !r.window.isDestroyed()) {
-      r.window.close();
-    }
-    this.running.delete(id);
-    this.onStatusChange?.();
   }
-
-  stopAll(): void {
-    for (const id of [...this.running.keys()]) this.stop(id);
+  async stopAll(): Promise<void> {
+    await Promise.all([...this.running.keys()].map((id) => this.stop(id)));
   }
 }

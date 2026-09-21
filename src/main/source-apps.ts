@@ -16,14 +16,28 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import https from 'node:https';
+import { randomUUID } from 'node:crypto';
+import { assertInside, assertAppId } from './safe-path';
+import { runStageTask } from './staging-worker';
 import { isValidPkg, type AppEntry, type SourceOrigin } from '@shared/types';
 import { logger } from './logger';
-import { extractZipBuffer, extractZipFile } from './unzip';
 
 /** Base R packages that ship with R — never install-resolved from a scan. */
 const BASE_PKGS = new Set([
-  'base', 'compiler', 'datasets', 'graphics', 'grDevices', 'grid', 'methods',
-  'parallel', 'splines', 'stats', 'stats4', 'tcltk', 'tools', 'translations',
+  'base',
+  'compiler',
+  'datasets',
+  'graphics',
+  'grDevices',
+  'grid',
+  'methods',
+  'parallel',
+  'splines',
+  'stats',
+  'stats4',
+  'tcltk',
+  'tools',
+  'translations',
   'utils',
 ]);
 
@@ -32,7 +46,11 @@ export function appsRootDir(userDataDir: string): string {
 }
 
 export function stagedDirFor(userDataDir: string, id: string): string {
-  return path.join(appsRootDir(userDataDir), id);
+  assertAppId(id);
+  return assertInside(
+    appsRootDir(userDataDir),
+    path.join(appsRootDir(userDataDir), id),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -41,12 +59,18 @@ export function stagedDirFor(userDataDir: string, id: string): string {
 
 function dirHasShinyApp(dir: string): boolean {
   try {
-    if (fs.existsSync(path.join(dir, 'app.R')) || fs.existsSync(path.join(dir, 'app.r'))) {
+    if (
+      fs.existsSync(path.join(dir, 'app.R')) ||
+      fs.existsSync(path.join(dir, 'app.r'))
+    ) {
       return true;
     }
-    const hasUi = fs.existsSync(path.join(dir, 'ui.R')) || fs.existsSync(path.join(dir, 'ui.r'));
+    const hasUi =
+      fs.existsSync(path.join(dir, 'ui.R')) ||
+      fs.existsSync(path.join(dir, 'ui.r'));
     const hasSrv =
-      fs.existsSync(path.join(dir, 'server.R')) || fs.existsSync(path.join(dir, 'server.r'));
+      fs.existsSync(path.join(dir, 'server.R')) ||
+      fs.existsSync(path.join(dir, 'server.r'));
     return hasUi && hasSrv;
   } catch {
     return false;
@@ -62,8 +86,13 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'renv', '.Rproj.user']);
  * depth ≤ 3) — this transparently handles the single wrapper directory that
  * zips and GitHub zipballs introduce. Returns undefined if none is found.
  */
-export function findShinyAppDir(baseDir: string, appDir?: string): string | undefined {
-  const start = appDir ? path.join(baseDir, appDir) : baseDir;
+export function findShinyAppDir(
+  baseDir: string,
+  appDir?: string,
+): string | undefined {
+  const start = appDir
+    ? assertInside(baseDir, path.join(baseDir, appDir))
+    : baseDir;
   if (dirHasShinyApp(start)) return start;
 
   const queue: { dir: string; depth: number }[] = [{ dir: start, depth: 0 }];
@@ -97,7 +126,7 @@ function addMatches(text: string, re: RegExp, into: Set<string>): void {
   }
 }
 
-const DEP_FIELDS = new Set(['Imports', 'Depends', 'LinkingTo', 'Suggests']);
+const DEP_FIELDS = new Set(['Imports', 'Depends', 'LinkingTo']);
 
 function parseDescriptionDeps(text: string, into: Set<string>): void {
   // DESCRIPTION fields start at column 0 ("Field: value") and wrap onto indented
@@ -114,24 +143,34 @@ function parseDescriptionDeps(text: string, into: Set<string>): void {
     }
   }
   for (const raw of bodies.join(' ').split(',')) {
-    const name = raw.trim().replace(/\s*\(.*$/, '').trim(); // strip "(>= 1.0)"
-    if (name && name !== 'R' && !BASE_PKGS.has(name) && isValidPkg(name)) into.add(name);
+    const name = raw
+      .trim()
+      .replace(/\s*\(.*$/, '')
+      .trim(); // strip "(>= 1.0)"
+    if (name && name !== 'R' && !BASE_PKGS.has(name) && isValidPkg(name))
+      into.add(name);
   }
 }
 
 function parseRenvLock(text: string, into: Set<string>): void {
   try {
-    const lock = JSON.parse(text) as { Packages?: Record<string, { Package?: string }> };
+    const lock = JSON.parse(text) as {
+      Packages?: Record<string, { Package?: string }>;
+    };
     for (const v of Object.values(lock.Packages ?? {})) {
       const name = v?.Package;
       if (name && !BASE_PKGS.has(name) && isValidPkg(name)) into.add(name);
     }
-  } catch {
-    // not valid JSON — ignore
+  } catch (err) {
+    throw new Error(`Invalid renv.lock: ${String(err)}`, { cause: err });
   }
 }
 
-function walkFiles(dir: string, depth: number, visit: (file: string) => void): void {
+function walkFiles(
+  dir: string,
+  depth: number,
+  visit: (file: string) => void,
+): void {
   if (depth > 6) return;
   let children: fs.Dirent[];
   try {
@@ -150,13 +189,17 @@ function walkFiles(dir: string, depth: number, visit: (file: string) => void): v
 }
 
 /**
- * Scan a staged app directory for the R packages it needs: `library()` /
+ * Separate declared hard requirements from advisory `library()` /
  * `require()` / `requireNamespace()` / `pkg::` references in R/Rmd source, plus
  * DESCRIPTION dependency fields and renv.lock packages. `shiny` is always
- * included. Base R packages are excluded. Returns a sorted, de-duplicated list.
+ * included in required dependencies. Base R packages are excluded.
  */
-export function scanDependencies(appDir: string): string[] {
+export function scanDependencyModel(appDir: string): {
+  required: string[];
+  advisory: string[];
+} {
   const found = new Set<string>(['shiny']);
+  const advisory = new Set<string>();
   const libRe = /\b(?:library|require)\s*\(\s*["']?([A-Za-z][A-Za-z0-9.]*)/g;
   const reqNsRe = /requireNamespace\s*\(\s*["']([A-Za-z][A-Za-z0-9.]*)/g;
   const nsRe = /([A-Za-z][A-Za-z0-9.]*)\s*::/g;
@@ -166,19 +209,22 @@ export function scanDependencies(appDir: string): string[] {
     try {
       if (/\.(R|r|Rmd|rmd)$/.test(base)) {
         const text = fs.readFileSync(file, 'utf8');
-        addMatches(text, libRe, found);
-        addMatches(text, reqNsRe, found);
-        addMatches(text, nsRe, found);
+        addMatches(text, libRe, advisory);
+        addMatches(text, reqNsRe, advisory);
+        addMatches(text, nsRe, advisory);
       } else if (base === 'DESCRIPTION') {
         parseDescriptionDeps(fs.readFileSync(file, 'utf8'), found);
       } else if (base === 'renv.lock') {
         parseRenvLock(fs.readFileSync(file, 'utf8'), found);
       }
-    } catch {
-      // unreadable file — skip
+    } catch (err) {
+      if (base === 'DESCRIPTION' || base === 'renv.lock') throw err;
     }
   });
-  return [...found].sort();
+  return {
+    required: [...found].sort(),
+    advisory: [...advisory].filter((p) => !found.has(p)).sort(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -188,42 +234,96 @@ export function scanDependencies(appDir: string): string[] {
 /** Abort a remote fetch that stalls (no socket activity) for this long. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
-function httpsGet(url: string, token: string | null, redirects = 0): Promise<Buffer> {
+export function httpsGet(
+  url: string,
+  token: string | null,
+  signal?: AbortSignal,
+  maxBytes = 64 * 1024 * 1024,
+  deadline = Date.now() + 60000,
+  redirects = 0,
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    if (redirects > 5) return reject(new Error('too many redirects'));
+    if (signal?.aborted) return reject(new Error('Download cancelled'));
+    if (redirects > 5 || Date.now() >= deadline)
+      return reject(new Error('Download deadline or redirect limit exceeded'));
     let u: URL;
     try {
       u = new URL(url);
     } catch {
-      return reject(new Error(`invalid URL: ${url}`));
+      return reject(new Error('Invalid download URL'));
     }
-    if (u.protocol !== 'https:') return reject(new Error(`only https is allowed: ${url}`));
+    if (u.protocol !== 'https:' || u.username || u.password)
+      return reject(new Error('Only clean HTTPS URLs are allowed'));
     const headers: Record<string, string> = { 'User-Agent': 'shinylaunchR' };
-    // Only attach the PAT to GitHub hosts.
-    if (token && /(^|\.)github(usercontent)?\.com$/.test(u.hostname)) {
+    if (token && /(^|\.)github(usercontent)?\.com$/.test(u.hostname))
       headers.Authorization = `token ${token}`;
-    }
-    const req = https.get(u, { headers, timeout: REQUEST_TIMEOUT_MS }, (res) => {
-      const status = res.statusCode ?? 0;
-      if (status >= 300 && status < 400 && res.headers.location) {
-        res.resume();
-        const next = new URL(res.headers.location, u).href;
-        resolve(httpsGet(next, token, redirects + 1));
-        return;
-      }
-      if (status !== 200) {
-        res.resume();
-        return reject(new Error(`HTTP ${status} fetching ${u.hostname}${u.pathname}`));
-      }
-      const chunks: Buffer[] = [];
-      res.on('data', (d: Buffer) => chunks.push(d));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-      res.on('error', reject);
+    const req = https.get(
+      u,
+      { headers, timeout: REQUEST_TIMEOUT_MS },
+      (res) => {
+        const status = res.statusCode ?? 0;
+        if (status >= 300 && status < 400 && res.headers.location) {
+          res.resume();
+          cleanup();
+          try {
+            const next = new URL(res.headers.location, u).href;
+            resolve(
+              httpsGet(next, token, signal, maxBytes, deadline, redirects + 1),
+            );
+          } catch (err) {
+            reject(new Error('Invalid download redirect URL', { cause: err }));
+          }
+          return;
+        }
+        if (status !== 200) {
+          res.resume();
+          cleanup();
+          reject(new Error(`HTTP ${status} fetching ${u.hostname}`));
+          return;
+        }
+        let received = 0;
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => {
+          received += chunk.length;
+          if (received > maxBytes) {
+            res.destroy(new Error('Download byte budget exceeded'));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        res.on('end', () => {
+          cleanup();
+          resolve(Buffer.concat(chunks));
+        });
+        res.on('error', (err) => {
+          cleanup();
+          reject(err);
+        });
+      },
+    );
+    const abort = (): void => {
+      req.destroy(new Error('Download cancelled'));
+    };
+    const timer = setTimeout(
+      () => req.destroy(new Error('Download deadline exceeded')),
+      Math.max(1, deadline - Date.now()),
+    );
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    req.on('timeout', () => req.destroy(new Error('Download timed out')));
+    req.on('error', (err) => {
+      cleanup();
+      reject(err);
     });
-    // A stalled connection must not hang staging forever: abort on timeout.
-    req.on('timeout', () => req.destroy(new Error(`request timed out after ${REQUEST_TIMEOUT_MS}ms`)));
-    req.on('error', reject);
   });
+}
+
+/** Only declared dependencies block installation; scans are advisory. */
+export function scanDependencies(appDir: string): string[] {
+  return scanDependencyModel(appDir).required;
 }
 
 /** A single top-level wrapper dir (as zips/zipballs produce) collapses to itself. */
@@ -239,54 +339,98 @@ function effectiveRoot(dir: string): string {
   return dir;
 }
 
-function rmrf(dir: string): void {
-  try {
-    fs.rmSync(dir, { recursive: true, force: true });
-  } catch {
-    // ignore
-  }
+function rmrf(root: string, dir: string): void {
+  fs.rmSync(assertInside(root, dir), { recursive: true, force: true });
 }
 
 async function materialise(
   origin: SourceOrigin,
   destDir: string,
   token: string | null,
+  signal?: AbortSignal,
 ): Promise<string> {
-  fs.mkdirSync(destDir, { recursive: true });
   switch (origin.from) {
     case 'zip': {
-      if (origin.filePath) {
-        extractZipFile(origin.filePath, destDir);
-      } else if (origin.url) {
-        extractZipBuffer(await httpsGet(origin.url, token), destDir);
-      }
+      if (origin.filePath)
+        await runStageTask({ zipFile: origin.filePath, dest: destDir }, signal);
+      else if (origin.url)
+        await runStageTask(
+          { zip: await httpsGet(origin.url, token, signal), dest: destDir },
+          signal,
+        );
+      else throw new Error('ZIP source is missing');
       return effectiveRoot(destDir);
     }
     case 'local': {
-      const src = origin.path;
-      if (!fs.existsSync(src) || !fs.statSync(src).isDirectory()) {
-        throw new Error(`local folder not found: ${src}`);
-      }
-      fs.cpSync(src, destDir, { recursive: true });
+      await runStageTask({ source: origin.path, dest: destDir }, signal);
       return destDir;
     }
     case 'github': {
       const [repoPart, ref] = origin.repo.split('@');
-      const url = `https://api.github.com/repos/${repoPart}/zipball/${ref ?? ''}`;
-      extractZipBuffer(await httpsGet(url, token), destDir);
-      return effectiveRoot(destDir);
+      const url = `https://api.github.com/repos/${repoPart}/zipball/${ref ? encodeURIComponent(ref) : ''}`;
+      await runStageTask(
+        { zip: await httpsGet(url, token, signal), dest: destDir },
+        signal,
+      );
+      const root = effectiveRoot(destDir);
+      return origin.subdir
+        ? assertInside(root, path.join(root, origin.subdir))
+        : root;
     }
     case 'gist': {
+      const deadline = Date.now() + 60000;
       const meta = JSON.parse(
-        (await httpsGet(`https://api.github.com/gists/${origin.id}`, token)).toString('utf8'),
-      ) as { files?: Record<string, { filename?: string; content?: string; raw_url?: string; truncated?: boolean }> };
-      for (const f of Object.values(meta.files ?? {})) {
-        if (!f.filename) continue;
-        // gist filenames are flat; reject any path separator defensively.
-        if (/[\\/]/.test(f.filename)) continue;
+        (
+          await httpsGet(
+            `https://api.github.com/gists/${origin.id}`,
+            token,
+            signal,
+            8 * 1024 * 1024,
+            deadline,
+          )
+        ).toString('utf8'),
+      ) as {
+        files?: Record<
+          string,
+          {
+            filename?: string;
+            content?: string;
+            raw_url?: string;
+            truncated?: boolean;
+          }
+        >;
+      };
+      let total = 0;
+      const files = Object.values(meta.files ?? {});
+      if (files.length > 1000) throw new Error('Gist entry budget exceeded');
+      for (const f of files) {
+        if (
+          !f.filename ||
+          /[\\/]/.test(f.filename) ||
+          f.filename === '.' ||
+          f.filename === '..'
+        )
+          throw new Error('Invalid gist filename');
+        if (signal?.aborted || Date.now() > deadline)
+          throw new Error('Gist cancelled or timed out');
         const content =
-          f.truncated && f.raw_url ? (await httpsGet(f.raw_url, token)).toString('utf8') : f.content ?? '';
-        fs.writeFileSync(path.join(destDir, f.filename), content);
+          f.truncated && f.raw_url
+            ? await httpsGet(
+                f.raw_url,
+                token,
+                signal,
+                64 * 1024 * 1024 - total,
+                deadline,
+              )
+            : Buffer.from(f.content ?? '');
+        total += content.length;
+        if (total > 64 * 1024 * 1024)
+          throw new Error('Gist byte budget exceeded');
+        fs.writeFileSync(
+          assertInside(destDir, path.join(destDir, f.filename)),
+          content,
+          { flag: 'wx' },
+        );
       }
       return destDir;
     }
@@ -296,48 +440,144 @@ async function materialise(
 export interface StageDeps {
   userDataDir: string;
   token?: string | null;
+  signal?: AbortSignal;
 }
-
 export interface StageResult {
   ok: boolean;
   appDir?: string;
   message?: string;
 }
+export interface PreparedSource extends StageResult {
+  commit(): string;
+  rollback(): void;
+  finalize(): void;
+}
 
-/**
- * Stage a `source` app for `entry`: clear any previous staging, materialise the
- * files, then locate the Shiny entry directory. Returns the resolved app dir on
- * success, or a clear message (never throws into the caller).
- */
-export async function stageSource(entry: AppEntry, deps: StageDeps): Promise<StageResult> {
-  if (entry.source.kind !== 'source') {
-    return { ok: false, message: 'not a source app' };
-  }
-  const staged = stagedDirFor(deps.userDataDir, entry.id);
-  rmrf(staged);
-  try {
-    const root = await materialise(entry.source.origin, staged, deps.token ?? null);
-    const appDir = findShinyAppDir(root, entry.source.appDir);
-    if (!appDir) {
-      rmrf(staged);
-      return {
-        ok: false,
-        message:
-          'No Shiny app found (need app.R, or ui.R + server.R). ' +
-          'Check the archive/folder, or set the app sub-directory.',
-      };
+/** Keep the previous revision until the caller has installed candidate dependencies. */
+export async function prepareSource(
+  entry: AppEntry,
+  deps: StageDeps,
+): Promise<PreparedSource> {
+  let candidate: string | undefined;
+  const root = appsRootDir(deps.userDataDir);
+  let state: 'prepared' | 'committed' | 'finalized' | 'rolled-back' =
+    'prepared';
+  let staged: string | undefined;
+  let backup: string | undefined;
+  const rollback = (): void => {
+    if (state === 'finalized' || state === 'rolled-back') return;
+    if (state === 'committed' && staged && candidate) {
+      // Move the rejected candidate aside before restoring the previous tree.
+      assertInside(root, staged);
+      assertInside(root, candidate);
+      fs.renameSync(staged, candidate);
+      try {
+        if (backup) fs.renameSync(assertInside(root, backup), staged);
+      } catch (err) {
+        fs.renameSync(candidate, staged);
+        throw err;
+      }
+      state = 'prepared';
     }
-    logger.info('source', `Staged "${entry.name}" → ${appDir}`, entry.id);
-    return { ok: true, appDir };
+    if (candidate) rmrf(root, candidate);
+    state = 'rolled-back';
+  };
+  try {
+    if (entry.source.kind !== 'source') throw new Error('Not a source app');
+    staged = stagedDirFor(deps.userDataDir, entry.id);
+    candidate = assertInside(
+      root,
+      path.join(root, `${entry.id}.candidate-${randomUUID()}`),
+    );
+    fs.mkdirSync(candidate, { recursive: true });
+    const materialised = await materialise(
+      entry.source.origin,
+      candidate,
+      deps.token ?? null,
+      deps.signal,
+    );
+    const appDir = findShinyAppDir(materialised, entry.source.appDir);
+    if (!appDir)
+      throw new Error(
+        'No Shiny app found (need app.R, or ui.R + server.R). Check the app sub-directory.',
+      );
+    const relative = path.relative(candidate, appDir);
+    return {
+      ok: true,
+      appDir,
+      rollback,
+      finalize: () => {
+        if (state === 'finalized') return;
+        if (state !== 'committed')
+          throw new Error('Commit staging before finalizing');
+        state = 'finalized';
+        // Registry state is already durable; cleanup failure cannot undo publication.
+        if (backup) {
+          try {
+            rmrf(root, backup);
+          } catch (err) {
+            logger.warn(
+              'source',
+              `Previous revision cleanup failed: ${String(err)}`,
+            );
+          }
+        }
+      },
+      commit: () => {
+        if (state !== 'prepared')
+          throw new Error('Staging transaction already completed');
+        if (deps.signal?.aborted) throw new Error('Staging cancelled');
+        assertInside(root, staged!);
+        assertInside(root, candidate!);
+        backup = fs.existsSync(staged!)
+          ? assertInside(root, `${staged}.previous-${randomUUID()}`)
+          : undefined;
+        if (backup) fs.renameSync(staged!, backup);
+        try {
+          fs.renameSync(candidate!, staged!);
+        } catch (err) {
+          if (backup) fs.renameSync(backup, staged!);
+          backup = undefined;
+          throw err;
+        }
+        state = 'committed';
+        return relative
+          ? assertInside(staged!, path.join(staged!, relative))
+          : staged!;
+      },
+    };
   } catch (err) {
-    rmrf(staged);
-    const message = `Staging failed: ${err instanceof Error ? err.message : String(err)}`;
-    logger.error('source', message, entry.id);
-    return { ok: false, message };
+    rollback();
+    return {
+      ok: false,
+      message: `Staging failed: ${String(err)}`,
+      rollback,
+      finalize: () => {
+        throw new Error('Cannot finalize failed staging');
+      },
+      commit: () => {
+        throw new Error('Cannot commit failed staging');
+      },
+    };
   }
 }
 
-/** Remove a staged source app's directory (used on app removal). */
+export async function stageSource(
+  entry: AppEntry,
+  deps: StageDeps,
+): Promise<StageResult> {
+  const prepared = await prepareSource(entry, deps);
+  if (!prepared.ok) return prepared;
+  try {
+    const appDir = prepared.commit();
+    prepared.finalize();
+    return { ok: true, appDir };
+  } catch (err) {
+    prepared.rollback();
+    return { ok: false, message: String(err) };
+  }
+}
+
 export function removeStaged(userDataDir: string, id: string): void {
-  rmrf(stagedDirFor(userDataDir, id));
+  rmrf(appsRootDir(userDataDir), stagedDirFor(userDataDir, id));
 }

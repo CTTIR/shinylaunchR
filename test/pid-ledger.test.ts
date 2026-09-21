@@ -1,56 +1,94 @@
-import { describe, expect, it } from 'vitest';
-import { PidLedger, type LedgerFs } from '../src/main/pid-ledger';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { PidLedger, type ProcessIdentity } from '../src/main/pid-ledger';
 
-/** In-memory ledger file backing, optionally made to throw on read or write. */
-function memFs(initial?: string, opts: { failRead?: boolean; failWrite?: boolean } = {}): LedgerFs {
-  let content = initial;
-  return {
-    existsSync: () => content !== undefined,
-    readFileSync: () => {
-      if (opts.failRead) throw new Error('EACCES');
-      return content ?? '';
-    },
-    writeFileSync: (_p, data) => {
-      if (opts.failWrite) throw new Error('EROFS');
-      content = data;
-    },
-  };
-}
+let root: string;
+beforeEach(() => {
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'slr-ledger-test-'));
+});
+afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+const identity = (pid: number): ProcessIdentity => ({
+  pid,
+  started: '12345',
+  executable: '/fixture/R',
+  marker: randomUUID(),
+});
 
-describe('PidLedger', () => {
-  it('round-trips added PIDs and dedupes', () => {
-    const fs = memFs();
-    const led = new PidLedger('/tmp/pids.json', fs);
-    led.add(100);
-    led.add(200);
-    led.add(100);
-    expect(led.list().sort((a, b) => a - b)).toEqual([100, 200]);
+describe('identity ledger', () => {
+  it('persists identities, replaces reused PID records and removes only the requested record', () => {
+    const file = path.join(root, 'pids.json');
+    const ledger = new PidLedger(file);
+    const first = identity(100),
+      second = identity(200),
+      replacement = identity(100);
+    ledger.add(first);
+    ledger.add(second);
+    ledger.add(replacement);
+    expect(new PidLedger(file).list()).toEqual([second, replacement]);
+    ledger.remove(200);
+    expect(new PidLedger(file).list()).toEqual([replacement]);
+    expect(fs.readdirSync(root).some((name) => name.endsWith('.tmp'))).toBe(
+      false,
+    );
   });
-
-  it('removes a PID and clears all', () => {
-    const fs = memFs('[1,2,3]');
-    const led = new PidLedger('/tmp/pids.json', fs);
-    led.remove(2);
-    expect(led.list().sort((a, b) => a - b)).toEqual([1, 3]);
-    led.clear();
-    expect(led.list()).toEqual([]);
+  it('discards legacy bare PIDs and malformed identities rather than trusting executable names', () => {
+    const file = path.join(root, 'pids.json');
+    const valid = identity(42);
+    fs.writeFileSync(
+      file,
+      JSON.stringify([
+        42,
+        '42',
+        null,
+        {},
+        { ...valid, pid: -1 },
+        { ...valid, pid: 1.5 },
+        { ...valid, started: '' },
+        { ...valid, executable: '' },
+        { ...valid, marker: 'not-a-marker' },
+        valid,
+      ]),
+    );
+    expect(new PidLedger(file).list()).toEqual([valid]);
   });
-
-  it('returns [] for missing, corrupt, or non-array files', () => {
-    expect(new PidLedger('/x', memFs()).list()).toEqual([]);
-    expect(new PidLedger('/x', memFs('not json')).list()).toEqual([]);
-    expect(new PidLedger('/x', memFs('{"a":1}')).list()).toEqual([]);
+  it('treats missing, malformed and non-array storage as having no verified owners', () => {
+    const file = path.join(root, 'pids.json');
+    const ledger = new PidLedger(file);
+    expect(ledger.list()).toEqual([]);
+    for (const value of ['broken json', '{}', 'null']) {
+      fs.writeFileSync(file, value);
+      expect(ledger.list()).toEqual([]);
+    }
   });
-
-  it('drops non-positive / non-integer entries', () => {
-    expect(new PidLedger('/x', memFs('[0,-5,1.5,42,"7"]')).list()).toEqual([42]);
+  it('reports persistence failure instead of claiming a recorded identity', () => {
+    const directory = path.join(root, 'directory');
+    fs.mkdirSync(directory);
+    expect(() => new PidLedger(directory).add(identity(42))).toThrow();
   });
-
-  it('rejects invalid PIDs on add and never throws on I/O failure', () => {
-    const led = new PidLedger('/x', memFs(undefined, { failWrite: true }));
-    expect(() => led.add(-1)).not.toThrow();
-    expect(() => led.add(123)).not.toThrow();
-    const readLed = new PidLedger('/x', memFs('[1]', { failRead: true }));
-    expect(readLed.list()).toEqual([]);
-  });
+});
+it('recovers verified owners from the atomic backup and preserves corrupt primary evidence', () => {
+  const file = path.join(root, 'pids.json');
+  const ledger = new PidLedger(file);
+  const first = identity(100);
+  ledger.add(first);
+  ledger.add(identity(200));
+  fs.writeFileSync(file, '{broken');
+  expect(ledger.list()).toEqual([first]);
+  expect(fs.readdirSync(root).some((name) => name.includes('.corrupt-'))).toBe(
+    true,
+  );
+  ledger.add(identity(300));
+  expect(ledger.list().map((record) => record.pid)).toEqual([100, 300]);
+});
+it('falls back from schema-invalid primary to a validated backup', () => {
+  const file = path.join(root, 'pids.json');
+  const ledger = new PidLedger(file);
+  const first = identity(100);
+  ledger.add(first);
+  ledger.add(identity(200));
+  fs.writeFileSync(file, '{}');
+  expect(ledger.list()).toEqual([first]);
 });

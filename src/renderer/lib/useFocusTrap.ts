@@ -23,19 +23,26 @@ export function useFocusTrap<T extends HTMLElement>() {
         node.querySelectorAll<HTMLElement>(
           'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
         ),
-      ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+      ).filter((el) => !el.hidden && !el.closest('[hidden], [inert]'));
+
+    if (!node.contains(document.activeElement))
+      (focusable()[0] ?? node).focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
       const items = focusable();
-      if (items.length === 0) return;
+      if (items.length === 0) {
+        e.preventDefault();
+        node.focus();
+        return;
+      }
       const first = items[0]!;
       const last = items[items.length - 1]!;
       const active = document.activeElement;
-      if (e.shiftKey && active === first) {
+      if (e.shiftKey && (active === first || !node.contains(active))) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && active === last) {
+      } else if (!e.shiftKey && (active === last || !node.contains(active))) {
         e.preventDefault();
         first.focus();
       }

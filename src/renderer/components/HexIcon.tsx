@@ -36,13 +36,24 @@ export function HexIcon({ tone, variant, label, size = 52 }: HexIconProps) {
     >
       <path className="hex-face" d={HEX_PATH} />
       {variant === 'globe' ? (
-        <g className="hex-glyph" fill="none" strokeWidth={5} strokeLinecap="round">
+        <g
+          className="hex-glyph"
+          fill="none"
+          strokeWidth={5}
+          strokeLinecap="round"
+        >
           <circle cx="50" cy="50" r="20" />
           <ellipse cx="50" cy="50" rx="9" ry="20" />
           <line x1="30" y1="50" x2="70" y2="50" />
         </g>
       ) : (
-        <text className="hex-mono" x="50" y="50" textAnchor="middle" dominantBaseline="central">
+        <text
+          className="hex-mono"
+          x="50"
+          y="50"
+          textAnchor="middle"
+          dominantBaseline="central"
+        >
           {label}
         </text>
       )}

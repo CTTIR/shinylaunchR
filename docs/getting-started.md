@@ -1,76 +1,14 @@
-# Getting started with shinylaunchR
+# Getting started
 
-shinylaunchR is a cross-platform desktop **launchpad for R/Shiny apps**. It shows
-a grid of app tiles; clicking one opens that app in its own native window while R
-runs headless in the background. shinylaunchR is **not** an R package — it is an
-Electron application that *manages* R as a subprocess.
+This guide describes the unpublished 0.2.0-rc.1 candidate. Check the release's platform qualification before distributing installers.
 
-## Install
+1. Install R ≥ 4.2 separately if you want local package or source apps. The launcher does not download R. Use **R Runtime → Point to existing R** when automatic discovery does not find your installation.
+2. Use a section's **+** tile to register a package, Shiny source app, or hosted HTTPS URL. For a package, provide its name and exported launcher function. For source apps, choose a folder, ZIP, HTTPS archive, gist, or GitHub source repository. Hosted URLs need no local R.
+3. Click a tile to select it. Double-click or press Enter to launch. Native menu actions target the selected tile.
+4. Use Stop or close the app window when finished. Quit requests shutdown of owned processes.
 
-Download the installer for your platform from the
-[Releases page](https://github.com/cttir/shinylaunchR/releases) and run it. The
-app ships unsigned by default, so your OS may show a warning on first launch —
-see the README's *Why the security warning?* section.
+Only install trusted R code: it runs with your account's permissions. Local folders are copied into staging and are not run in place. Reinstall replaces staged files, including app-written files there; keep durable data elsewhere. Apps share an R-version/architecture library, not per-app renv environments.
 
-## The three app families
+Credentials use Electron safeStorage only when a usable OS backend exists. Linux basic_text is unavailable. Hosted windows use temporary sessions, so logins may need to be repeated. Frameless windows and managed R installation are not offered.
 
-Each section ends in its own **`+` tile** that opens the Add dialog pre-set to
-that family.
-
-- **Packages** — a Shiny app shipped as an R package (CRAN or a GitHub package
-  repo). You provide the source, the package name, and the **launcher function**
-  (e.g. `mp_run_app`), which is called as `pkg::fun()`. Tiles use the package's
-  real hex logo when it has one, otherwise a colored hex.
-- **Shiny apps** — non-package Shiny *files*: an uploaded `.zip`, a local folder,
-  a zip URL, a gist, or a GitHub *source* repo (`app.R`, or `ui.R` + `server.R`).
-  Files are staged into a private directory and run with `shiny::runApp()`.
-- **Hosted URLs** — a Shiny app already running somewhere (shinyapps.io, Connect,
-  …). Paste the `https://` address; nothing is installed.
-
-## Add and launch an app
-
-1. Click **`+ Add app`** (or the `+` tile in a section).
-2. Pick a source and fill in the required fields for that family.
-3. For packages and Shiny-file apps, shinylaunchR installs dependencies into its
-   private managed library and shows live progress in the log console.
-4. When the tile turns green, **click** it to launch. The app opens in a
-   dedicated window with its own taskbar entry; R runs headless behind it.
-5. **Close** the window to stop that app's R process.
-
-Only add Shiny-file and hosted-URL apps you trust — their R code runs, or their
-remote page loads, when launched.
-
-## R runtime
-
-shinylaunchR detects R on your system or downloads a managed copy from CRAN onto
-your machine. Use **R Runtime** in the menu to check status, (re-)bootstrap a
-managed R, point at an existing installation, or open the library folder.
-
-## Where to look next
-
-- **Help → Version, Legal & License** in the top menu links to the version,
-  legal notices, reference documentation, third-party licenses, and the license.
-- Dependency and supply-chain notes: [`dependency-advisories.md`](dependency-advisories.md).
-- Security posture and reporting: [`../SECURITY.md`](../SECURITY.md).
-- Privacy (no telemetry; all data local): [`../PRIVACY.md`](../PRIVACY.md).
-
-## Citation
-
-If you use shinylaunchR in your work, please cite it:
-
-> Heller, R. (2026). *shinylaunchR: A cross-platform desktop launchpad for
-> R/Shiny apps* (Version 0.1.0) [Computer software]. Apache-2.0.
-> https://github.com/cttir/shinylaunchR
-
-BibTeX:
-
-```bibtex
-@software{heller_shinylaunchr_2026,
-  author  = {Heller, Raban},
-  title   = {{shinylaunchR}: A cross-platform desktop launchpad for {R}/{Shiny} apps},
-  year    = {2026},
-  version = {0.1.0},
-  url     = {https://github.com/cttir/shinylaunchR},
-  license = {Apache-2.0}
-}
-```
+If a launch fails, inspect the Log Console, verify the selected R runtime and dependency installation, and retry after resolving the reported error. Logs can contain app output and paths; inspect them before sharing. See [privacy](../PRIVACY.md), [security](../SECURITY.md), and the [README](../README.md).

@@ -7,6 +7,7 @@ directories:
 files:
   - out/**/*
   - package.json
+  - "!**/*.map"
 extraResources:
   - from: resources
     to: resources
@@ -18,15 +19,10 @@ extraResources:
   - THIRD_PARTY_LICENSES.md
 extraMetadata:
   main: out/main/main.js
-# Publish target so `electron-builder --publish always` uploads to a GitHub Release.
-publish:
-  provider: github
-  owner: cttir
-  repo: shinylaunchR
+# Packaging never publishes; the workflow creates a draft after all OS checks pass.
+publish: null
 asar: true
-# Native modules (keytar) must be unpacked from the asar to load at runtime.
-asarUnpack:
-  - "**/node_modules/keytar/**"
+afterPack: scripts/after-pack.cjs
 win:
   icon: resources/icon.ico
   target:

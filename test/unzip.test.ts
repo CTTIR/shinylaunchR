@@ -3,10 +3,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { safeJoin, extractZipBuffer, extractZipFile, ZipError } from '../src/main/unzip';
+import {
+  safeJoin,
+  extractZipBuffer,
+  extractZipFile,
+  ZipError,
+} from '../src/main/unzip';
 
 /** Build a minimal ZIP in memory. method 0 = stored, 8 = deflate. */
-function makeZip(entries: { name: string; content: string; method?: 0 | 8 }[]): Buffer {
+function makeZip(
+  entries: { name: string; content: string; method?: 0 | 8 }[],
+): Buffer {
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;
@@ -21,7 +28,14 @@ function makeZip(entries: { name: string; content: string; method?: 0 | 8 }[]): 
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
     local.writeUInt16LE(method, 8);
-    local.writeUInt32LE(0, 14); // crc (ignored by our extractor)
+    let crc = 0xffffffff;
+    for (const byte of raw) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit++)
+        crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+    crc = (crc ^ 0xffffffff) >>> 0;
+    local.writeUInt32LE(crc, 14);
     local.writeUInt32LE(data.length, 18);
     local.writeUInt32LE(raw.length, 22);
     local.writeUInt16LE(nameBuf.length, 26);
@@ -31,6 +45,7 @@ function makeZip(entries: { name: string; content: string; method?: 0 | 8 }[]): 
     central.writeUInt32LE(0x02014b50, 0);
     central.writeUInt16LE(20, 6);
     central.writeUInt16LE(method, 10);
+    central.writeUInt32LE(crc, 16);
     central.writeUInt32LE(data.length, 20);
     central.writeUInt32LE(raw.length, 24);
     central.writeUInt16LE(nameBuf.length, 28);
@@ -83,8 +98,12 @@ describe('extractZipBuffer', () => {
       { name: 'www/', content: '' },
     ]);
     const written = extractZipBuffer(zip, dir);
-    expect(fs.readFileSync(path.join(dir, 'app.R'), 'utf8')).toBe('shinyApp(ui, server)');
-    expect(fs.readFileSync(path.join(dir, 'R/helpers.R'), 'utf8')).toBe('f <- function() 42');
+    expect(fs.readFileSync(path.join(dir, 'app.R'), 'utf8')).toBe(
+      'shinyApp(ui, server)',
+    );
+    expect(fs.readFileSync(path.join(dir, 'R/helpers.R'), 'utf8')).toBe(
+      'f <- function() 42',
+    );
     expect(fs.existsSync(path.join(dir, 'www'))).toBe(true);
     expect(written).toContain('app.R');
   });
@@ -92,11 +111,15 @@ describe('extractZipBuffer', () => {
   it('fails closed on a zip-slip entry without writing the escaping file', () => {
     const zip = makeZip([{ name: '../escape.txt', content: 'pwned' }]);
     expect(() => extractZipBuffer(zip, dir)).toThrow(ZipError);
-    expect(fs.existsSync(path.join(path.dirname(dir), 'escape.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(path.dirname(dir), 'escape.txt'))).toBe(
+      false,
+    );
   });
 
   it('rejects a non-zip buffer', () => {
-    expect(() => extractZipBuffer(Buffer.from('not a zip'), dir)).toThrow(ZipError);
+    expect(() => extractZipBuffer(Buffer.from('not a zip'), dir)).toThrow(
+      ZipError,
+    );
   });
 
   it('rejects a ZIP64 archive rather than mis-extracting', () => {
@@ -118,4 +141,39 @@ describe('extractZipBuffer', () => {
       fs.rmSync(out, { recursive: true, force: true });
     }
   });
+});
+
+it('rejects forged output lengths and CRCs', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zip-integrity-'));
+  try {
+    const zip = makeZip([
+      { name: 'app.R', content: 'x'.repeat(10000), method: 8 },
+    ]);
+    const cd = zip.readUInt32LE(zip.length - 6);
+    zip.writeUInt32LE(1, cd + 24);
+    expect(() => extractZipBuffer(zip, dir)).toThrow();
+    const wrongCrc = makeZip([{ name: 'app.R', content: 'hello' }]);
+    wrongCrc.writeUInt32LE(42, wrongCrc.readUInt32LE(wrongCrc.length - 6) + 16);
+    expect(() => extractZipBuffer(wrongCrc, dir)).toThrow(/CRC/);
+    expect(fs.existsSync(path.join(dir, 'app.R'))).toBe(false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+it('enforces cumulative output and entry budgets', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zip-budget-'));
+  try {
+    const zip = makeZip([
+      { name: 'a', content: 'x'.repeat(10000), method: 8 },
+      { name: 'b', content: 'x'.repeat(10000), method: 8 },
+    ]);
+    expect(() => extractZipBuffer(zip, dir, { maxBytes: 15000 })).toThrow(
+      /budget/,
+    );
+    expect(() => extractZipBuffer(zip, dir, { maxEntries: 1 })).toThrow(
+      /budget/,
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -27,16 +27,32 @@ export function TopBar(props: TopBarProps) {
       </div>
       <div className="spacer" />
       <div className="menu-host row">
-        <button className="btn ghost" onClick={props.onOpenR} title="R runtime status">
+        <button
+          className="btn ghost"
+          onClick={props.onOpenR}
+          title="R runtime status"
+        >
           R
         </button>
-        <button className="btn ghost" onClick={props.onToggleLog} title="Toggle log console">
+        <button
+          className="btn ghost"
+          onClick={props.onToggleLog}
+          title="Toggle log console"
+        >
           Logs
         </button>
-        <button className="btn ghost" onClick={props.onOpenCredentials} title="GitHub credentials">
+        <button
+          className="btn ghost"
+          onClick={props.onOpenCredentials}
+          title="GitHub credentials"
+        >
           Token
         </button>
-        <button className="btn ghost" onClick={props.onOpenSettings} title="Settings">
+        <button
+          className="btn ghost"
+          onClick={props.onOpenSettings}
+          title="Settings"
+        >
           Settings
         </button>
         <button className="btn ghost" onClick={props.onOpenHelp} title="Help">

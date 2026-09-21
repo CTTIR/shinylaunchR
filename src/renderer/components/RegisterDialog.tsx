@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   appFamily,
   isSafeRelPath,
@@ -25,7 +25,7 @@ export interface RegisterDialogProps {
   /** Pre-set family when opened from a section "+" tile (ignored while editing). */
   initialFamily?: AppFamily;
   onClose: () => void;
-  onSubmit: (input: AppEntryInput) => void;
+  onSubmit: (input: AppEntryInput) => void | Promise<void>;
 }
 
 type PkgKind = 'cran' | 'github';
@@ -46,9 +46,16 @@ function deriveOriginType(source: AppEntry['source']): OriginType {
   return 'github';
 }
 
-export function RegisterDialog({ editing, initialFamily, onClose, onSubmit }: RegisterDialogProps) {
+export function RegisterDialog({
+  editing,
+  initialFamily,
+  onClose,
+  onSubmit,
+}: RegisterDialogProps) {
   const editFamily = editing ? appFamily(editing.source) : undefined;
-  const [family, setFamily] = useState<AppFamily>(editFamily ?? initialFamily ?? 'package');
+  const [family, setFamily] = useState<AppFamily>(
+    editFamily ?? initialFamily ?? 'package',
+  );
 
   const [name, setName] = useState(editing?.name ?? '');
 
@@ -56,34 +63,57 @@ export function RegisterDialog({ editing, initialFamily, onClose, onSubmit }: Re
   const [pkgKind, setPkgKind] = useState<PkgKind>(
     editing?.source.kind === 'github' ? 'github' : 'cran',
   );
-  const [repo, setRepo] = useState(editing?.source.kind === 'github' ? editing.source.repo : '');
+  const [repo, setRepo] = useState(
+    editing?.source.kind === 'github' ? editing.source.repo : '',
+  );
   const [pkg, setPkg] = useState(editing?.pkg ?? '');
   const [fun, setFun] = useState(editing?.fun ?? '');
   const [pkgTouched, setPkgTouched] = useState(Boolean(editing?.pkg));
 
   // SHINY FILE family
-  const initialOrigin = editing ? deriveOriginType(editing.source) : 'zip-upload';
+  const initialOrigin = editing
+    ? deriveOriginType(editing.source)
+    : 'zip-upload';
   const [originType, setOriginType] = useState<OriginType>(initialOrigin);
-  const srcOrigin = editing?.source.kind === 'source' ? editing.source.origin : undefined;
+  const srcOrigin =
+    editing?.source.kind === 'source' ? editing.source.origin : undefined;
   const [zipFilePath, setZipFilePath] = useState(
     srcOrigin?.from === 'zip' ? (srcOrigin.filePath ?? '') : '',
   );
-  const [zipUrl, setZipUrl] = useState(srcOrigin?.from === 'zip' ? (srcOrigin.url ?? '') : '');
-  const [localPath, setLocalPath] = useState(srcOrigin?.from === 'local' ? srcOrigin.path : '');
-  const [gistId, setGistId] = useState(srcOrigin?.from === 'gist' ? srcOrigin.id : '');
-  const [ghRepo, setGhRepo] = useState(srcOrigin?.from === 'github' ? srcOrigin.repo : '');
+  const [zipUrl, setZipUrl] = useState(
+    srcOrigin?.from === 'zip' ? (srcOrigin.url ?? '') : '',
+  );
+  const [localPath, setLocalPath] = useState(
+    srcOrigin?.from === 'local' ? srcOrigin.path : '',
+  );
+  const [gistId, setGistId] = useState(
+    srcOrigin?.from === 'gist' ? srcOrigin.id : '',
+  );
+  const [ghRepo, setGhRepo] = useState(
+    srcOrigin?.from === 'github' ? srcOrigin.repo : '',
+  );
   const [appDir, setAppDir] = useState(
     editing?.source.kind === 'source' ? (editing.source.appDir ?? '') : '',
   );
 
   // HOSTED URL family
-  const [url, setUrl] = useState(editing?.source.kind === 'url' ? editing.source.url : '');
+  const [url, setUrl] = useState(
+    editing?.source.kind === 'url' ? editing.source.url : '',
+  );
 
   // Common
-  const [iconPath, setIconPath] = useState<string | undefined>(editing?.iconPath);
-  const [portMode, setPortMode] = useState<'auto' | 'fixed'>(editing?.fixedPort ? 'fixed' : 'auto');
-  const [port, setPort] = useState<string>(editing?.fixedPort ? String(editing.fixedPort) : '');
-  const [frameless, setFrameless] = useState<boolean>(editing?.frameless ?? false);
+  const [iconPath, setIconPath] = useState<string | undefined>(
+    editing?.iconPath,
+  );
+  const [portMode, setPortMode] = useState<'auto' | 'fixed'>(
+    editing?.fixedPort ? 'fixed' : 'auto',
+  );
+  const [port, setPort] = useState<string>(
+    editing?.fixedPort ? String(editing.fixedPort) : '',
+  );
+  const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
+  const [failure, setFailure] = useState('');
   const trapRef = useFocusTrap<HTMLDivElement>();
 
   // Auto-suggest package name from "org/repo" until the user edits it.
@@ -98,28 +128,50 @@ export function RegisterDialog({ editing, initialFamily, onClose, onSubmit }: Re
     const e: Record<string, string> = {};
     if (!name.trim()) e.name = 'Display name is required.';
     if (family === 'package') {
-      if (!isValidPkg(pkg)) e.pkg = 'Letters, digits and dots only (R package name).';
+      if (!isValidPkg(pkg))
+        e.pkg = 'Letters, digits and dots only (R package name).';
       if (!isValidName(fun)) e.fun = 'Must match ^[A-Za-z.][A-Za-z0-9._]*$';
-      if (pkgKind === 'github' && !isValidRepo(repo)) e.repo = 'Use org/repo or org/repo@ref';
+      if (pkgKind === 'github' && !isValidRepo(repo))
+        e.repo = 'Use org/repo or org/repo@ref';
     } else if (family === 'url') {
       if (!isValidHttpsUrl(url)) e.url = 'Enter a full https:// URL.';
     } else {
       // shinyfile
-      if (originType === 'zip-upload' && !zipFilePath) e.origin = 'Choose a .zip file.';
+      if (originType === 'zip-upload' && !zipFilePath)
+        e.origin = 'Choose a .zip file.';
       if (originType === 'local' && !localPath) e.origin = 'Choose a folder.';
-      if (originType === 'zip-url' && !isValidHttpsUrl(zipUrl)) e.origin = 'Enter an https zip URL.';
-      if (originType === 'gist' && !isValidGist(gistId)) e.origin = 'Enter a gist id.';
-      if (originType === 'github' && !isValidRepo(ghRepo)) e.origin = 'Use org/repo or org/repo@ref';
-      if (appDir && !isSafeRelPath(appDir)) e.appDir = 'A relative path inside the app (no "..").';
+      if (originType === 'zip-url' && !isValidHttpsUrl(zipUrl))
+        e.origin = 'Enter an https zip URL.';
+      if (originType === 'gist' && !isValidGist(gistId))
+        e.origin = 'Enter a gist id.';
+      if (originType === 'github' && !isValidRepo(ghRepo))
+        e.origin = 'Use org/repo or org/repo@ref';
+      if (appDir && !isSafeRelPath(appDir))
+        e.appDir = 'A relative path inside the app (no "..").';
     }
-    if (portMode === 'fixed') {
+    if (family !== 'url' && portMode === 'fixed') {
       const p = Number(port);
-      if (!Number.isInteger(p) || p < 1 || p > 65535) e.port = 'Port must be 1–65535.';
+      if (!Number.isInteger(p) || p < 1 || p > 65535)
+        e.port = 'Port must be 1–65535.';
     }
     return e;
   }, [
-    name, family, pkg, fun, pkgKind, repo, url, originType, zipFilePath, localPath, zipUrl, gistId,
-    ghRepo, appDir, portMode, port,
+    name,
+    family,
+    pkg,
+    fun,
+    pkgKind,
+    repo,
+    url,
+    originType,
+    zipFilePath,
+    localPath,
+    zipUrl,
+    gistId,
+    ghRepo,
+    appDir,
+    portMode,
+    port,
   ]);
 
   const valid = Object.keys(errors).length === 0;
@@ -134,20 +186,43 @@ export function RegisterDialog({ editing, initialFamily, onClose, onSubmit }: Re
     const dir = appDir.trim() || undefined;
     switch (originType) {
       case 'zip-upload':
-        return { kind: 'source', origin: { from: 'zip', filePath: zipFilePath }, appDir: dir };
+        return {
+          kind: 'source',
+          origin: { from: 'zip', filePath: zipFilePath },
+          appDir: dir,
+        };
       case 'zip-url':
-        return { kind: 'source', origin: { from: 'zip', url: zipUrl }, appDir: dir };
+        return {
+          kind: 'source',
+          origin: { from: 'zip', url: zipUrl },
+          appDir: dir,
+        };
       case 'local':
-        return { kind: 'source', origin: { from: 'local', path: localPath }, appDir: dir };
+        return {
+          kind: 'source',
+          origin: { from: 'local', path: localPath },
+          appDir: dir,
+        };
       case 'gist':
-        return { kind: 'source', origin: { from: 'gist', id: gistId }, appDir: dir };
+        return {
+          kind: 'source',
+          origin: { from: 'gist', id: gistId },
+          appDir: dir,
+        };
       case 'github':
-        return { kind: 'source', origin: { from: 'github', repo: ghRepo }, appDir: dir };
+        return {
+          kind: 'source',
+          origin: { from: 'github', repo: ghRepo },
+          appDir: dir,
+        };
     }
   };
 
-  const submit = () => {
-    if (!valid) return;
+  const submit = async () => {
+    if (!valid || submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
+    setFailure('');
     const input: AppEntryInput = {
       name: name.trim(),
       pkg: family === 'package' ? pkg : undefined,
@@ -155,28 +230,49 @@ export function RegisterDialog({ editing, initialFamily, onClose, onSubmit }: Re
       source: buildSource(),
       iconPath,
       fixedPort: portMode === 'fixed' ? Number(port) : undefined,
-      frameless,
     };
-    onSubmit(input);
+    try {
+      await onSubmit(input);
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : String(error));
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
   };
 
   const pickIcon = async () => {
-    const picked = await api.pickIcon();
-    if (picked) setIconPath(picked);
+    try {
+      const picked = await api.pickIcon();
+      if (picked) setIconPath(picked);
+    } catch (error) {
+      setFailure(String(error));
+    }
   };
   const pickZip = async () => {
-    const picked = await api.pickZipFile();
-    if (picked) setZipFilePath(picked);
+    try {
+      const picked = await api.pickZipFile();
+      if (picked) setZipFilePath(picked);
+    } catch (error) {
+      setFailure(String(error));
+    }
   };
   const pickFolder = async () => {
-    const picked = await api.pickFolder();
-    if (picked) setLocalPath(picked);
+    try {
+      const picked = await api.pickFolder();
+      if (picked) setLocalPath(picked);
+    } catch (error) {
+      setFailure(String(error));
+    }
   };
 
   const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
 
   return (
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}
+    >
       <div
         className="modal"
         role="dialog"
@@ -184,7 +280,10 @@ export function RegisterDialog({ editing, initialFamily, onClose, onSubmit }: Re
         aria-label={editing ? 'Edit app' : 'Add a Shiny app'}
         ref={trapRef}
         onKeyDown={(e) => {
-          if (e.key === 'Escape') onClose();
+          if (e.key === 'Escape') {
+            e.stopPropagation();
+            if (!busy) onClose();
+          }
           if (
             e.key === 'Enter' &&
             (e.target as HTMLElement).tagName === 'INPUT' &&
@@ -192,271 +291,384 @@ export function RegisterDialog({ editing, initialFamily, onClose, onSubmit }: Re
             (e.target as HTMLInputElement).type !== 'checkbox'
           ) {
             e.preventDefault();
-            submit();
+            void submit();
           }
         }}
       >
-        <h2>{editing ? 'Edit app' : `Add a ${FAMILY_LABEL[family]}`}</h2>
+        <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0 }}>
+          <h2>{editing ? 'Edit app' : `Add a ${FAMILY_LABEL[family]}`}</h2>
 
-        {!editing && (
+          {!editing && (
+            <div className="field">
+              <label>Type</label>
+              <div
+                className="radio-row"
+                role="radiogroup"
+                aria-label="App type"
+              >
+                {(['package', 'shinyfile', 'url'] as AppFamily[]).map((f) => (
+                  <label key={f}>
+                    <input
+                      type="radio"
+                      name="family"
+                      checked={family === f}
+                      onChange={() => setFamily(f)}
+                    />
+                    {FAMILY_LABEL[f]}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="field">
-            <label>Type</label>
-            <div className="radio-row">
-              {(['package', 'shinyfile', 'url'] as AppFamily[]).map((f) => (
-                <label key={f}>
-                  <input type="radio" checked={family === f} onChange={() => setFamily(f)} />
-                  {FAMILY_LABEL[f]}
+            <label htmlFor="register-field-1">Display name</label>
+            <input
+              id="register-field-1"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            {errors.name && <div className="error">{errors.name}</div>}
+          </div>
+
+          {family === 'package' && (
+            <>
+              <div className="field">
+                <label>Source</label>
+                <div
+                  className="radio-row"
+                  role="radiogroup"
+                  aria-label="Package source"
+                >
+                  <label>
+                    <input
+                      type="radio"
+                      name="package-source"
+                      checked={pkgKind === 'cran'}
+                      onChange={() => setPkgKind('cran')}
+                    />
+                    CRAN
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="package-source"
+                      checked={pkgKind === 'github'}
+                      onChange={() => setPkgKind('github')}
+                    />
+                    GitHub
+                  </label>
+                </div>
+              </div>
+
+              {pkgKind === 'github' && (
+                <div className="field">
+                  <label htmlFor="register-field-2">GitHub repo</label>
+                  <input
+                    id="register-field-2"
+                    type="text"
+                    placeholder="org/repo or org/repo@ref"
+                    value={repo}
+                    onChange={(e) => setRepo(e.target.value)}
+                  />
+                  {errors.repo && <div className="error">{errors.repo}</div>}
+                  <div className="hint">
+                    Private repos use your stored GitHub token automatically.
+                  </div>
+                </div>
+              )}
+
+              <div className="field">
+                <label htmlFor="register-field-3">Package name</label>
+                <input
+                  id="register-field-3"
+                  type="text"
+                  value={pkg}
+                  onChange={(e) => {
+                    setPkg(e.target.value);
+                    setPkgTouched(true);
+                  }}
+                />
+                {errors.pkg && <div className="error">{errors.pkg}</div>}
+                {pkgKind === 'github' && (
+                  <div className="hint">
+                    Repo name and package name can differ — override if needed.
+                  </div>
+                )}
+              </div>
+
+              <div className="field">
+                <label htmlFor="register-field-4">Launcher function</label>
+                <input
+                  id="register-field-4"
+                  type="text"
+                  placeholder="e.g. mp_run_app"
+                  value={fun}
+                  onChange={(e) => setFun(e.target.value)}
+                />
+                {errors.fun && <div className="error">{errors.fun}</div>}
+                <div className="hint">
+                  Called as{' '}
+                  <code>{(pkg || 'pkg') + '::' + (fun || 'fun')}()</code> —
+                  never a shell.
+                </div>
+              </div>
+            </>
+          )}
+
+          {family === 'shinyfile' && (
+            <>
+              <div className="field">
+                <label htmlFor="register-field-5">Source</label>
+                <select
+                  id="register-field-5"
+                  value={originType}
+                  onChange={(e) => setOriginType(e.target.value as OriginType)}
+                >
+                  <option value="zip-upload">Upload .zip</option>
+                  <option value="local">Local folder</option>
+                  <option value="zip-url">Zip URL</option>
+                  <option value="gist">Gist</option>
+                  <option value="github">GitHub source repo</option>
+                </select>
+              </div>
+
+              {originType === 'zip-upload' && (
+                <div className="field">
+                  <label htmlFor="choose-zip">App .zip</label>
+                  <div className="row">
+                    <button
+                      className="btn"
+                      type="button"
+                      id="choose-zip"
+                      onClick={pickZip}
+                    >
+                      Choose .zip…
+                    </button>
+                    <span
+                      className="mono"
+                      style={{ fontSize: 12, color: 'var(--text-faint)' }}
+                    >
+                      {zipFilePath ? baseName(zipFilePath) : 'no file chosen'}
+                    </span>
+                  </div>
+                  {errors.origin && (
+                    <div className="error">{errors.origin}</div>
+                  )}
+                </div>
+              )}
+              {originType === 'local' && (
+                <div className="field">
+                  <label htmlFor="choose-folder">App folder</label>
+                  <div className="row">
+                    <button
+                      className="btn"
+                      type="button"
+                      id="choose-folder"
+                      onClick={pickFolder}
+                    >
+                      Choose folder…
+                    </button>
+                    <span
+                      className="mono"
+                      style={{ fontSize: 12, color: 'var(--text-faint)' }}
+                    >
+                      {localPath ? baseName(localPath) : 'no folder chosen'}
+                    </span>
+                  </div>
+                  {errors.origin && (
+                    <div className="error">{errors.origin}</div>
+                  )}
+                  <div className="hint">
+                    The folder is copied into the app — never run in place.
+                  </div>
+                </div>
+              )}
+              {originType === 'zip-url' && (
+                <div className="field">
+                  <label htmlFor="register-field-6">Zip URL</label>
+                  <input
+                    id="register-field-6"
+                    type="text"
+                    placeholder="https://…/app.zip"
+                    value={zipUrl}
+                    onChange={(e) => setZipUrl(e.target.value)}
+                  />
+                  {errors.origin && (
+                    <div className="error">{errors.origin}</div>
+                  )}
+                </div>
+              )}
+              {originType === 'gist' && (
+                <div className="field">
+                  <label htmlFor="register-field-7">Gist id</label>
+                  <input
+                    id="register-field-7"
+                    type="text"
+                    placeholder="e.g. 3b8c1f2e…"
+                    value={gistId}
+                    onChange={(e) => setGistId(e.target.value)}
+                  />
+                  {errors.origin && (
+                    <div className="error">{errors.origin}</div>
+                  )}
+                </div>
+              )}
+              {originType === 'github' && (
+                <div className="field">
+                  <label htmlFor="register-field-8">GitHub source repo</label>
+                  <input
+                    id="register-field-8"
+                    type="text"
+                    placeholder="org/repo or org/repo@ref"
+                    value={ghRepo}
+                    onChange={(e) => setGhRepo(e.target.value)}
+                  />
+                  {errors.origin && (
+                    <div className="error">{errors.origin}</div>
+                  )}
+                  <div className="hint">
+                    A repo of Shiny *files* (app.R / ui.R+server.R), not a
+                    package.
+                  </div>
+                </div>
+              )}
+
+              <div className="field">
+                <label htmlFor="register-field-9">
+                  App sub-directory (optional)
                 </label>
-              ))}
+                <input
+                  id="register-field-9"
+                  type="text"
+                  placeholder="e.g. inst/shiny"
+                  value={appDir}
+                  onChange={(e) => setAppDir(e.target.value)}
+                />
+                {errors.appDir && <div className="error">{errors.appDir}</div>}
+                <div className="hint">
+                  Where app.R / ui.R+server.R live, if not at the top level.
+                </div>
+              </div>
+            </>
+          )}
+
+          {family === 'url' && (
+            <div className="field">
+              <label htmlFor="register-field-10">App URL</label>
+              <input
+                id="register-field-10"
+                type="text"
+                placeholder="https://example.shinyapps.io/myapp/"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+              />
+              {errors.url && <div className="error">{errors.url}</div>}
+              <div className="hint">
+                Opens in an isolated, https-only window. Nothing is installed.
+                Sign-in sessions are temporary and end when the app closes.
+              </div>
+            </div>
+          )}
+
+          <div className="field">
+            <label htmlFor="choose-icon">Icon (optional)</label>
+            <div className="row">
+              <button
+                className="btn"
+                id="choose-icon"
+                onClick={pickIcon}
+                type="button"
+              >
+                Choose file…
+              </button>
+              <span
+                className="mono"
+                style={{ fontSize: 12, color: 'var(--text-faint)' }}
+              >
+                {iconPath
+                  ? baseName(iconPath)
+                  : family === 'package'
+                    ? 'auto-resolve from package'
+                    : 'a grey hex is used by default'}
+              </span>
+              {iconPath && (
+                <button
+                  className="btn ghost"
+                  type="button"
+                  onClick={() => setIconPath(undefined)}
+                >
+                  clear
+                </button>
+              )}
             </div>
           </div>
-        )}
 
-        <div className="field">
-          <label>Display name</label>
-          <input type="text" value={name} autoFocus onChange={(e) => setName(e.target.value)} />
-          {errors.name && <div className="error">{errors.name}</div>}
-        </div>
-
-        {family === 'package' && (
-          <>
+          {family !== 'url' && (
             <div className="field">
-              <label>Source</label>
-              <div className="radio-row">
+              <label>Port</label>
+              <div
+                className="radio-row"
+                role="radiogroup"
+                aria-label="Port selection"
+              >
                 <label>
-                  <input type="radio" checked={pkgKind === 'cran'} onChange={() => setPkgKind('cran')} />
-                  CRAN
+                  <input
+                    type="radio"
+                    name="port-mode"
+                    checked={portMode === 'auto'}
+                    onChange={() => setPortMode('auto')}
+                  />
+                  Auto
                 </label>
                 <label>
                   <input
                     type="radio"
-                    checked={pkgKind === 'github'}
-                    onChange={() => setPkgKind('github')}
+                    name="port-mode"
+                    checked={portMode === 'fixed'}
+                    onChange={() => setPortMode('fixed')}
                   />
-                  GitHub
+                  Fixed
                 </label>
+                {portMode === 'fixed' && (
+                  <input
+                    type="number"
+                    aria-label="Fixed port"
+                    style={{ width: 120 }}
+                    value={port}
+                    onChange={(e) => setPort(e.target.value)}
+                  />
+                )}
               </div>
+              {errors.port && <div className="error">{errors.port}</div>}
             </div>
+          )}
 
-            {pkgKind === 'github' && (
-              <div className="field">
-                <label>GitHub repo</label>
-                <input
-                  type="text"
-                  placeholder="org/repo or org/repo@ref"
-                  value={repo}
-                  onChange={(e) => setRepo(e.target.value)}
-                />
-                {errors.repo && <div className="error">{errors.repo}</div>}
-                <div className="hint">Private repos use your stored GitHub token automatically.</div>
-              </div>
-            )}
-
-            <div className="field">
-              <label>Package name</label>
-              <input
-                type="text"
-                value={pkg}
-                onChange={(e) => {
-                  setPkg(e.target.value);
-                  setPkgTouched(true);
-                }}
-              />
-              {errors.pkg && <div className="error">{errors.pkg}</div>}
-              {pkgKind === 'github' && (
-                <div className="hint">Repo name and package name can differ — override if needed.</div>
-              )}
-            </div>
-
-            <div className="field">
-              <label>Launcher function</label>
-              <input
-                type="text"
-                placeholder="e.g. mp_run_app"
-                value={fun}
-                onChange={(e) => setFun(e.target.value)}
-              />
-              {errors.fun && <div className="error">{errors.fun}</div>}
-              <div className="hint">
-                Called as <code>{(pkg || 'pkg') + '::' + (fun || 'fun')}()</code> — never a shell.
-              </div>
-            </div>
-          </>
-        )}
-
-        {family === 'shinyfile' && (
-          <>
-            <div className="field">
-              <label>Source</label>
-              <select value={originType} onChange={(e) => setOriginType(e.target.value as OriginType)}>
-                <option value="zip-upload">Upload .zip</option>
-                <option value="local">Local folder</option>
-                <option value="zip-url">Zip URL</option>
-                <option value="gist">Gist</option>
-                <option value="github">GitHub source repo</option>
-              </select>
-            </div>
-
-            {originType === 'zip-upload' && (
-              <div className="field">
-                <label>App .zip</label>
-                <div className="row">
-                  <button className="btn" type="button" onClick={pickZip}>
-                    Choose .zip…
-                  </button>
-                  <span className="mono" style={{ fontSize: 12, color: 'var(--text-faint)' }}>
-                    {zipFilePath ? baseName(zipFilePath) : 'no file chosen'}
-                  </span>
-                </div>
-                {errors.origin && <div className="error">{errors.origin}</div>}
-              </div>
-            )}
-            {originType === 'local' && (
-              <div className="field">
-                <label>App folder</label>
-                <div className="row">
-                  <button className="btn" type="button" onClick={pickFolder}>
-                    Choose folder…
-                  </button>
-                  <span className="mono" style={{ fontSize: 12, color: 'var(--text-faint)' }}>
-                    {localPath ? baseName(localPath) : 'no folder chosen'}
-                  </span>
-                </div>
-                {errors.origin && <div className="error">{errors.origin}</div>}
-                <div className="hint">The folder is copied into the app — never run in place.</div>
-              </div>
-            )}
-            {originType === 'zip-url' && (
-              <div className="field">
-                <label>Zip URL</label>
-                <input
-                  type="text"
-                  placeholder="https://…/app.zip"
-                  value={zipUrl}
-                  onChange={(e) => setZipUrl(e.target.value)}
-                />
-                {errors.origin && <div className="error">{errors.origin}</div>}
-              </div>
-            )}
-            {originType === 'gist' && (
-              <div className="field">
-                <label>Gist id</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 3b8c1f2e…"
-                  value={gistId}
-                  onChange={(e) => setGistId(e.target.value)}
-                />
-                {errors.origin && <div className="error">{errors.origin}</div>}
-              </div>
-            )}
-            {originType === 'github' && (
-              <div className="field">
-                <label>GitHub source repo</label>
-                <input
-                  type="text"
-                  placeholder="org/repo or org/repo@ref"
-                  value={ghRepo}
-                  onChange={(e) => setGhRepo(e.target.value)}
-                />
-                {errors.origin && <div className="error">{errors.origin}</div>}
-                <div className="hint">A repo of Shiny *files* (app.R / ui.R+server.R), not a package.</div>
-              </div>
-            )}
-
-            <div className="field">
-              <label>App sub-directory (optional)</label>
-              <input
-                type="text"
-                placeholder="e.g. inst/shiny"
-                value={appDir}
-                onChange={(e) => setAppDir(e.target.value)}
-              />
-              {errors.appDir && <div className="error">{errors.appDir}</div>}
-              <div className="hint">Where app.R / ui.R+server.R live, if not at the top level.</div>
-            </div>
-          </>
-        )}
-
-        {family === 'url' && (
-          <div className="field">
-            <label>App URL</label>
-            <input
-              type="text"
-              placeholder="https://example.shinyapps.io/myapp/"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-            {errors.url && <div className="error">{errors.url}</div>}
-            <div className="hint">Opens in an isolated, https-only window. Nothing is installed.</div>
-          </div>
-        )}
-
-        <div className="field">
-          <label>Icon (optional)</label>
-          <div className="row">
-            <button className="btn" onClick={pickIcon} type="button">
-              Choose file…
+          {failure && (
+            <p role="alert" className="error">
+              {failure} Correct the details and try again.
+            </p>
+          )}
+          <div className="actions">
+            <button className="btn ghost" disabled={busy} onClick={onClose}>
+              Cancel
             </button>
-            <span className="mono" style={{ fontSize: 12, color: 'var(--text-faint)' }}>
-              {iconPath
-                ? baseName(iconPath)
-                : family === 'package'
-                  ? 'auto-resolve from package'
-                  : 'a grey hex is used by default'}
-            </span>
-            {iconPath && (
-              <button className="btn ghost" type="button" onClick={() => setIconPath(undefined)}>
-                clear
-              </button>
-            )}
+            <button
+              className="btn primary"
+              disabled={!valid || busy}
+              onClick={submit}
+            >
+              {busy
+                ? 'Saving…'
+                : editing
+                  ? 'Save'
+                  : family === 'url'
+                    ? 'Add'
+                    : 'Add & install'}
+            </button>
           </div>
-        </div>
-
-        {family !== 'url' && (
-          <div className="field">
-            <label>Port</label>
-            <div className="radio-row">
-              <label>
-                <input type="radio" checked={portMode === 'auto'} onChange={() => setPortMode('auto')} />
-                Auto
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  checked={portMode === 'fixed'}
-                  onChange={() => setPortMode('fixed')}
-                />
-                Fixed
-              </label>
-              {portMode === 'fixed' && (
-                <input
-                  type="number"
-                  style={{ width: 120 }}
-                  value={port}
-                  onChange={(e) => setPort(e.target.value)}
-                />
-              )}
-            </div>
-            {errors.port && <div className="error">{errors.port}</div>}
-          </div>
-        )}
-
-        <div className="field">
-          <label className="checkbox-row">
-            <input type="checkbox" checked={frameless} onChange={(e) => setFrameless(e.target.checked)} />
-            Frameless launched window
-          </label>
-        </div>
-
-        <div className="actions">
-          <button className="btn ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn primary" disabled={!valid} onClick={submit}>
-            {editing ? 'Save' : family === 'url' ? 'Add' : 'Add & install'}
-          </button>
-        </div>
+        </fieldset>
       </div>
     </div>
   );
