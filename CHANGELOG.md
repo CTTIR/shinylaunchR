@@ -6,10 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.2.0-rc.1] — Unpublished candidate
 
-Candidate qualification is tracked in `audit/2026-09-21/VALIDATION.md`; no release date is assigned.
+Candidate qualification is tracked in [the qualification record](docs/qualification.md); no release date is assigned.
 
 - Refresh Electron, React, TypeScript, Vite-compatible build tooling, Vitest and ESLint flat configuration; use Node 24.
-- Add three-platform PR checks, packaged smoke scaffolding, SHA-pinned actions and dependency updates.
+- Add three-platform PR checks, sandboxed packaged checks, SHA-pinned actions and dependency updates.
 - Verify packaged Electron fuses, exclude sourcemaps and minimize macOS entitlements.
 - Replace archived native credential dependency with safeStorage integration; correct documentation and candidate metadata.
 
@@ -41,6 +41,9 @@ Candidate qualification is tracked in `audit/2026-09-21/VALIDATION.md`; no relea
   `cran`/`github` registry entries migrate into Packages unchanged.
 
 ### Fixed
+- Supervise descendant lifetimes on Windows, macOS and Linux; reject unrelated process identities during recovery.
+- Open atomic backup files with write access before flushing on Windows.
+- Correct dark/light contrast and verify modal keyboard focus in the packaged application.
 - Package hex auto-resolve: the R probe's statements were joined with a space
   (invalid R, silent failure) — now newline-joined.
 - Source dependency installs are resilient to scan false positives: a batch

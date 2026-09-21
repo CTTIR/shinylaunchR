@@ -2,7 +2,7 @@
 
 A desktop launchpad for R and Shiny applications, with package apps, staged Shiny source apps, and hosted HTTPS URLs. Click a tile to select it; double-click or press Enter to launch it in its own native window.
 
-**0.2.0-rc.1 is an unpublished release candidate.** Windows, macOS and Linux are build targets; full platform qualification remains pending. A configured CI job is not evidence of a successful platform run.
+**0.2.0-rc.1 is an unpublished release candidate.** See the [qualification record](docs/qualification.md) for executed platform checks and the remaining final-release requirements.
 
 ## Getting started
 
@@ -14,7 +14,7 @@ Each section's **+** tile opens the registration form:
 - **Shiny apps:** choose a folder, ZIP file, HTTPS ZIP URL, gist or GitHub source repository containing `app.R` or `ui.R` and `server.R`. Local files are copied into staging; editing the original does not update the staged app.
 - **Hosted URLs:** enter an HTTPS address. These windows use temporary sessions; persistent login storage is not offered.
 
-Select a tile before using native menu actions. Close a running app window or use Stop to request process shutdown. Repeated launches focus an existing app window. Quitting requests shutdown of owned processes; platform-specific process termination still requires qualification.
+Select a tile before using native menu actions. Close a running app window or use Stop to request process shutdown. Repeated launches focus an existing app window. Quitting requests shutdown of owned processes, including supervised descendants.
 
 Only install sources you trust. **R packages and Shiny source execute code with your operating-system account's permissions.** A managed package library is not a sandbox. Hosted applications can transmit entered data to their operators and third-party services.
 
@@ -24,13 +24,13 @@ Packages share a library scoped by R version and architecture. They do not have 
 
 Reinstall replaces staged source files. Keep databases, uploads and other durable app data outside the staged source directory and back them up before reinstalling. Transactional replacement protects the last usable source from an installation failure; it is not a backup service for app-written data.
 
-The Electron `userData` directory typically lives at `%APPDATA%/shinylaunchR` (Windows), `~/Library/Application Support/shinylaunchR` (macOS), or `~/.config/shinylaunchR` (Linux). It contains registry and settings JSON, recovery backups, cached icons, logs, `apps/` staging, `running-pids.json`, the versioned R library beneath `r-runtime/`, and encrypted credential storage when available. Paths may differ with system configuration.
+The Electron `userData` directory typically lives at `%APPDATA%/shinylaunchR` (Windows), `~/Library/Application Support/shinylaunchR` (macOS), or `~/.config/shinylaunchr` (Linux). It contains registry and settings JSON, recovery backups, cached icons, logs, `apps/` staging, `running-pids.json`, the versioned R library beneath `r-runtime/`, and encrypted credential storage when available. Paths may differ with system configuration.
 
 Package icons are resolved from installed `help/figures/logo.*` and other supported locations. User-selected icons take priority. The interface uses the R-blue `#75AADB` accent.
 
 ## Credentials and security
 
-GitHub tokens use Electron `safeStorage` when a usable OS encryption backend is available. Linux `basic_text` is treated as unavailable. The encrypted token file is local; this does not protect against code running as your account. Legacy keytar tokens can be imported through fixed native OS helpers without shipping keytar: macOS `security`, Linux `secret-tool`, and Windows Credential Manager via PowerShell. Linux may require installation of the libsecret tools package. Missing helpers produce a warning and leave the old OS item untouched; enter the token again or restore the helper to migrate it. Locked stores and failed deletions are reported. These adapters require real-platform credential-store qualification.
+GitHub tokens use Electron `safeStorage` when a usable OS encryption backend is available. Linux `basic_text` is treated as unavailable. The encrypted token file is local; this does not protect against code running as your account. Legacy keytar tokens can be imported through fixed native OS helpers without shipping keytar: macOS `security`, Linux `secret-tool`, and Windows Credential Manager via PowerShell. Linux may require installation of the libsecret tools package. Missing helpers produce a warning and leave the old OS item untouched; enter the token again or restore the helper to migrate it. Locked stores and failed deletions are reported. Linux migration and encrypted persistence have been checked with synthetic credentials in an isolated OS store; Windows/macOS native credential-store qualification remains pending.
 
 App windows use sandboxed renderers without Node integration. Main-process IPC handlers validate requests and sender identity; browser permission requests are denied by default. Token redaction is defense in depth, not a guarantee that arbitrary app output cannot expose secrets. See [SECURITY.md](SECURITY.md) and [PRIVACY.md](PRIVACY.md).
 
