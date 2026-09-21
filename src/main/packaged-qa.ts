@@ -33,6 +33,8 @@ export async function packagedUiChecks(win: BrowserWindow, root: string): Promis
     accessibility.push({ view, ...result });
     if (result.violations.length) throw new Error(`Accessibility violations in ${view}: ${JSON.stringify(result.violations)}`);
   };
+  // Disposable smoke windows must keep producing frames without a desktop window manager.
+  win.webContents.setBackgroundThrottling(false);
   win.show();
   win.focus();
   win.webContents.focus();
@@ -50,12 +52,21 @@ export async function packagedUiChecks(win: BrowserWindow, root: string): Promis
   // Wall-clock delays can expire before Xvfb/compositor animation frames advance.
   // Force a style read, wait for actual transitions and two paints, then assert
   // the rendered tile backgrounds have reached the selected palette.
-  await evaluate(`new Promise((resolve,reject)=>{
-    const timeout=setTimeout(()=>reject(new Error('Theme paints did not settle')),4000);
-    getComputedStyle(document.querySelector('.tile')).backgroundColor;
-    Promise.all(document.getAnimations().filter(a=>a.playState==='running').map(a=>a.finished.catch(()=>{})))
-      .then(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{clearTimeout(timeout);resolve(true)})));
-  })`);
+  try {
+    await evaluate(`new Promise((resolve,reject)=>{
+      let stage='animations';
+      const timeout=setTimeout(()=>reject(new Error('Theme paints did not settle: '+JSON.stringify({
+        stage,visibility:document.visibilityState,focus:document.hasFocus(),theme:document.documentElement.dataset.theme,
+        animations:document.getAnimations().map(a=>({state:a.playState,pending:a.pending,currentTime:a.currentTime,startTime:a.startTime,timelineTime:a.timeline?.currentTime})),
+        tiles:Array.from(document.querySelectorAll('.tile')).map(e=>({background:getComputedStyle(e).backgroundColor,color:getComputedStyle(e).color}))
+      }))),4000);
+      getComputedStyle(document.querySelector('.tile')).backgroundColor;
+      Promise.all(document.getAnimations().filter(a=>a.playState==='running').map(a=>a.finished.catch(()=>{})))
+        .then(()=>{stage='first paint';requestAnimationFrame(()=>{stage='second paint';requestAnimationFrame(()=>{clearTimeout(timeout);resolve(true)})})});
+    })`);
+  } catch (error) {
+    throw new Error(`${String(error)}; window=${JSON.stringify({visible:win.isVisible(),minimized:win.isMinimized(),focused:win.isFocused(),backgroundThrottling:win.webContents.getBackgroundThrottling()})}`, { cause: error });
+  }
   await until(`(()=>{
     const palette=getComputedStyle(document.documentElement);
     const expected=tile=>{
