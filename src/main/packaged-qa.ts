@@ -40,8 +40,30 @@ export async function packagedUiChecks(win: BrowserWindow, root: string): Promis
   await until('document.hasFocus()');
   const keyboard: string[] = [];
   for (const theme of ['dark', 'light']) {
-  await evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
-  await new Promise<void>((resolve) => setTimeout(resolve, 250));
+  // Use the real theme control so React state, persistence and DOM agree.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (await evaluate(`document.querySelector('button[title="Toggle theme (dark / light / system)"]')?.textContent.toLowerCase().includes(${JSON.stringify(theme)})`)) break;
+    await evaluate(`document.querySelector('button[title="Toggle theme (dark / light / system)"]').click()`);
+    await settle();
+  }
+  await until(`document.documentElement.dataset.theme===${JSON.stringify(theme)} && document.querySelector('button[title="Toggle theme (dark / light / system)"]').textContent.toLowerCase().includes(${JSON.stringify(theme)})`);
+  // Wall-clock delays can expire before Xvfb/compositor animation frames advance.
+  // Force a style read, wait for actual transitions and two paints, then assert
+  // the rendered tile backgrounds have reached the selected palette.
+  await evaluate(`new Promise((resolve,reject)=>{
+    const timeout=setTimeout(()=>reject(new Error('Theme paints did not settle')),4000);
+    getComputedStyle(document.querySelector('.tile')).backgroundColor;
+    Promise.all(document.getAnimations().filter(a=>a.playState==='running').map(a=>a.finished.catch(()=>{})))
+      .then(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{clearTimeout(timeout);resolve(true)})));
+  })`);
+  await until(`(()=>{
+    const hex=getComputedStyle(document.documentElement).getPropertyValue('--bg-elev').trim();
+    if(!/^#[0-9a-f]{6}$/i.test(hex))throw new Error('Unexpected theme surface token');
+    const rgb='rgb('+[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)).join(', ')+')';
+    return document.documentElement.dataset.theme===${JSON.stringify(theme)} &&
+      !document.getAnimations().some(a=>a.playState==='running') &&
+      Array.from(document.querySelectorAll('.tile')).every(tile=>getComputedStyle(tile).backgroundColor===rgb);
+  })()`);
   await axe(`${theme}:dashboard`);
   for (const label of ['Add app', 'Settings', 'Help']) {
     await evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes(${JSON.stringify(label)})).focus()`);
