@@ -93,7 +93,4 @@ conclusions remain the authors' own. Where applicable, LLM-generated material
 must be reviewed and revised before inclusion, and references must be verified
 against their DOI, arXiv ID or ISBN.
 
-Workstation software snapshot (14 October 2026): local, OpenAI-compatible vLLM
-serving with **vLLM 0.28.1rc1.dev534+g613ab20f7**, **Python 3.12.13** and
-**PyTorch 2.13.0**; **R 4.6.1** and **RStudio 2026.06.0+242**. These are
-workstation versions, not per-project dependency or validation requirements.
+Local software setup: vLLM with Python/PyTorch, plus R and RStudio.
