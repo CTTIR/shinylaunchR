@@ -1,28 +1,40 @@
 # Package branding
 
-CTTIR Material Atlas v3.1, supplied 25 October 2026. The editable R geometry,
-colour roles, and bundled Inter fonts reproduce the package identities.
-The font licence is in `fonts/OFL.txt`. No rendering dependencies are installed
-when this package is installed or loaded.
+CTTIR Coder Edition v4.1, supplied 25 October 2026. Editable native R geometry
+and `design_tokens.csv` define the artwork, topic colours and typography.
+Every identity has an artwork-only hex and a named composition with the exact
+package name below it, each in light, dark and grayscale modes.
 
-From the repository root, render a separate review export:
+Render into a separate review directory from the repository root:
 
 ```sh
 Rscript tools/branding/render.R /path/to/review
 ```
 
-To regenerate and replace the registered repository assets:
+Regenerate and replace the registered repository assets:
 
 ```sh
 Rscript tools/branding/render.R --apply
 ```
 
-`assets.csv` maps rendered filenames to repository destinations. `packages.csv`
-selects the identities. Rendering uses base R, grid, grDevices, utils, tools,
-and Cairo; Linux uses the bundled fontconfig. On other systems, install the
-bundled Inter fonts first. Font and graphics versions can affect output bytes.
-Use the named primary badge at readable sizes and the unnamed symbols for
-favicons. Primary, light, grayscale, PDF and symbol variants are retained.
+`packages.csv` selects the identities; `assets.csv` maps the rendered filenames
+to their repository destinations. The canonical package `logo` is artwork only
+for navigation. `logo-with-name` is the named composition for README images and
+static figures. `-dark` and `-mono` select the alternate surfaces. Existing
+consumer filenames remain available. Icons use the dark artwork at native
+sizes; the maskable application icon includes its required opaque safe area.
+
+Rendering uses base R, grid, grDevices, utils and Cairo. No runtime dependency
+or installation step is added to the package. Linux rendering uses only the
+bundled fonts, with R's bold brand face mapped to JetBrains Mono SemiBold; this
+corrects the supplied profile's possible selection of system fonts. On other
+systems, install the bundled Inter and JetBrains Mono fonts first. Check a proof
+because font and graphics versions can affect the result. Font licences are
+in `fonts/OFL.txt` and `fonts/JetBrainsMono-OFL.txt`.
+
+The shared themakR template consumes the same v4.1 token and brand component
+styles. Standalone vignette styling needs explicit adoption; installing a
+package does not change its documentation theme or the user's font settings.
 
 Source archive SHA-256:
-`ec5d5d3b6443611792f45e9c0e32db19c50a9446dde63edb71c7458d18003f8d`
+`f3c5953d08e9de3ed453e3b840e1698e105a3489eda5331864e66de14aef9abd`

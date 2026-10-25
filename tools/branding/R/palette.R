@@ -1,46 +1,47 @@
-# CTTIR v3: colour roles for original R-drawn scientific identities.
-# Topic seeds are the Okabe-Ito colours. Tints/shades add material depth;
-# identity is also carried by the custom silhouette and exact package name.
-cttir_accents <- c(spectral="#0072B2", spatial="#009E73", omics="#CC79A7",
-  clinical="#D55E00", methods="#56B4E9", simulation="#E69F00",
-  evidence="#F0E442", platform="#000000", brand="#0072B2")
-cttir_family_labels <- c(spectral="SPECTRAL IMAGING", spatial="SPATIAL BIOLOGY",
-  omics="MOLECULAR DATA", clinical="CLINICAL SCIENCE", methods="LEARNING & INFERENCE",
-  simulation="SYSTEMS & SIMULATION", evidence="EVIDENCE & DISCOVERY",
-  platform="RESEARCH INFRASTRUCTURE", brand="SCIENCE, CONNECTED")
-
+# Colour supports identity; distinct scientific silhouettes remain the main cue.
+# UI link colours stay separate from topic colours.
+cttir_accents <- cttir_tokens[base::grepl("^topic[.]", base::names(cttir_tokens))]
+base::names(cttir_accents) <- base::sub("^topic[.]", "", base::names(cttir_accents))
+cttir_family_labels <- c(spectral="Spectral imaging", spatial="Spatial biology",
+  omics="Molecular data", clinical="Clinical science", methods="Learning & inference",
+  simulation="Systems & simulation", evidence="Evidence & discovery",
+  platform="Research infrastructure", brand="Science, connected")
 cttir_mix <- function(a,b,t) {
-  z <- grDevices::col2rgb(a)*t+grDevices::col2rgb(b)*(1-t)
+  z <- grDevices::col2rgb(a)*t + grDevices::col2rgb(b)*(1-t)
   grDevices::rgb(z[1],z[2],z[3],maxColorValue=255)
 }
 cttir_alpha <- function(colour, alpha) grDevices::adjustcolor(colour,alpha.f=alpha)
-cttir_style <- function(family, mode="primary") {
-  base::stopifnot(family %in% base::names(cttir_accents),mode %in% c("primary","light","mono"))
+cttir_style <- function(family, mode="light") {
+  if (mode=="primary") mode <- "dark"
+  base::stopifnot(family %in% base::names(cttir_accents), mode %in% c("light","dark","mono"))
   a <- cttir_accents[[family]]
-  # Platform logos use silver as their decorative material, with a black seed.
   material <- if(family=="platform") "#8FAABD" else a
-  face <- cttir_mix(material,"#0C1726",.18)
-  s <- list(accent=a,material=material,face=face,
-    facet=cttir_mix(material,face,.12),facet2=cttir_mix("#FFFFFF",face,.045),
-    rim=cttir_mix(material,"#FFFFFF",.65), ink="#F4F8FC",muted="#C6D4E0",
-    paper="#F4F8FC",light=cttir_mix(material,"#FFFFFF",.30),
-    mid=cttir_mix(material,"#FFFFFF",.78),deep=cttir_mix(material,"#142235",.36),
-    edge=cttir_mix(material,"#FFFFFF",.45),shadow="#030A12",mode=mode)
+  theme <- if(mode=="dark") "dark" else "light"
+  s <- list(accent=a, material=material, face=cttir_token(theme,"page"),
+    facet=cttir_token(theme,"page"), facet2=cttir_token(theme,"page"),
+    rim=cttir_mix(material,"#FFFFFF",.65), ink=cttir_token(theme,"heading"),
+    muted=cttir_token(theme,"text"), paper="#F4F8FC",
+    light=cttir_mix(material,"#FFFFFF",.30), mid=cttir_mix(material,"#FFFFFF",.78),
+    deep=cttir_mix(material,"#142235",.36), edge=cttir_mix(material,"#FFFFFF",.45),
+    shadow="#030A12", mode=mode)
   if(mode=="light") {
-    s$face <- cttir_mix(material,"#FFFFFF",.045)
-    s$facet <- cttir_mix(material,"#FFFFFF",.09)
-    s$facet2 <- "#FFFFFF";s$ink <- "#14283A";s$muted <- "#344F62"
     s$rim <- cttir_mix(material,"#22364A",.45)
     s$edge <- cttir_mix(material,"#14283A",.5)
   }
   if(mode=="mono") {
-    s$face <- "#171717";s$facet <- "#303030";s$facet2 <- "#222222"
-    s$ink <- "#F4F4F4";s$muted <- "#C6C6C6";s$shadow <- "#050505"
-    s$rim <- "#C9C9C9";s$paper <- "#F8F8F8";s$light <- "#DEDEDE"
-    s$mid <- "#A7A7A7";s$deep <- "#5C5C5C";s$edge <- "#D5D5D5"
-    s$accent <- "#A7A7A7";s$material <- "#A7A7A7"
+    s$face <- "#FAFAFA"; s$facet <- s$face; s$facet2 <- s$face
+    s$ink <- "#212121"; s$muted <- "#424242"; s$shadow <- "#050505"
+    s$rim <- "#5C5C5C"; s$paper <- "#F8F8F8"; s$light <- "#DEDEDE"
+    s$mid <- "#A7A7A7"; s$deep <- "#5C5C5C"; s$edge <- "#444444"
+    s$accent <- "#A7A7A7"; s$material <- "#A7A7A7"
+    s$mode <- "light"
   }
-  # Transform colour roles before vector drawing, never rasterise the artwork.
+  # Group-synchronised tile and opaque border; grayscale stays achromatic.
+  if(mode!="mono") {
+    s$face <- cttir_mix(a,cttir_token(theme,"page"),if(mode=="light") .14 else .24)
+    s$facet <- s$face; s$facet2 <- s$face
+    s$rim <- a
+  }
   vision <- base::getOption("cttir.vision","normal")
   if(vision!="normal") for(n in base::setdiff(base::names(s),"mode"))
     s[[n]] <- cttir_simulate_cvd(s[[n]],vision)

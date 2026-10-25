@@ -1,0 +1,30 @@
+group,token,value,source
+type,body_font,Inter,themakR inst/pkgdown/_pkgdown.yml
+type,code_font,JetBrains Mono,themakR inst/pkgdown/_pkgdown.yml
+type,brand_font,JetBrains Mono,themakR inst/pkgdown/extra.scss navbar-brand
+type,brand_weight,600,themakR inst/pkgdown/extra.scss navbar-brand
+light,page,#FAFAFA,themakR inst/pkgdown/_pkgdown.yml
+light,text,#212121,themakR inst/pkgdown/extra.scss
+light,heading,#212121,themakR light foreground
+light,link,#1565C0,themakR inst/pkgdown/_pkgdown.yml
+light,code_surface,#E9E9E9,themakR inst/pkgdown/extra.scss
+light,border,#D8D8D8,CTTIR neutral border extension
+dark,page,#212121,themakR inst/pkgdown/extra.scss
+dark,text,#DADADA,themakR inst/pkgdown/extra.scss
+dark,heading,#FFFFFF,themakR inst/pkgdown/extra.scss
+dark,link,#42A5F5,themakR inst/pkgdown/extra.scss
+dark,code_surface,#2B2B2B,themakR inst/pkgdown/extra.scss
+dark,border,#4F4F4F,themakR inst/pkgdown/extra.scss
+layout,hex_width_inches,6,CTTIR v4 master
+layout,lockup_extra_height_inches,0.78,CTTIR v4 name below hex
+layout,motif_width,0.88,CTTIR v4 artwork safe area
+layout,name_size_points,34,CTTIR v4 maximum fitted name size
+topic,spectral,#0072B2,Okabe-Ito
+topic,spatial,#009E73,Okabe-Ito
+topic,omics,#CC79A7,Okabe-Ito
+topic,clinical,#D55E00,Okabe-Ito
+topic,methods,#56B4E9,Okabe-Ito
+topic,simulation,#E69F00,Okabe-Ito
+topic,evidence,#F0E442,Okabe-Ito
+topic,platform,#000000,Okabe-Ito
+topic,brand,#0072B2,CTTIR blue
