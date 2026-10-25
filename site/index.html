@@ -21,7 +21,7 @@
       content="shinylaunchR is a cross-platform desktop launchpad for R/Shiny apps. Each tile opens an app in its own native window while R runs headless in the background."
     />
     <meta name="theme-color" content="#1565c0" />
-    <link rel="icon" href="icon.png" />
+    <link rel="icon" type="image/svg+xml" href="logo-symbol.svg" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
@@ -32,18 +32,8 @@
   <body>
     <nav class="navbar">
       <span class="brand">
-        <!-- App hex mark: blue hexagon + white play triangle -->
-        <svg viewBox="0 0 512 512" aria-hidden="true">
-          <defs>
-            <linearGradient id="hx" x1="0.1" y1="0" x2="0.9" y2="1">
-              <stop offset="0" stop-color="#9FC6E8" />
-              <stop offset="0.55" stop-color="#75AADB" />
-              <stop offset="1" stop-color="#2B6CB0" />
-            </linearGradient>
-          </defs>
-          <polygon points="256,50 434.4,153 434.4,359 256,462 77.6,359 77.6,153" fill="url(#hx)" stroke="url(#hx)" stroke-width="28" stroke-linejoin="round" />
-          <polygon points="206,168 206,344 360,256" fill="#fff" stroke="#fff" stroke-width="20" stroke-linejoin="round" />
-        </svg>
+        <!-- CTTIR Material Atlas app symbol -->
+        <img src="logo-symbol.svg" alt="" aria-hidden="true" />
         shinylaunchR
       </span>
       <span class="spacer"></span>
@@ -54,17 +44,7 @@
     </nav>
 
     <header class="hero">
-      <svg viewBox="0 0 512 512" aria-hidden="true">
-        <defs>
-          <linearGradient id="hx2" x1="0.1" y1="0" x2="0.9" y2="1">
-            <stop offset="0" stop-color="#9FC6E8" />
-            <stop offset="0.55" stop-color="#75AADB" />
-            <stop offset="1" stop-color="#2B6CB0" />
-          </linearGradient>
-        </defs>
-        <polygon points="256,50 434.4,153 434.4,359 256,462 77.6,359 77.6,153" fill="url(#hx2)" stroke="url(#hx2)" stroke-width="28" stroke-linejoin="round" />
-        <polygon points="206,168 206,344 360,256" fill="#fff" stroke="#fff" stroke-width="20" stroke-linejoin="round" />
-      </svg>
+      <img src="logo.png" alt="shinylaunchR hex logo" />
       <h1>shinylaunchR</h1>
       <p class="tagline">
         A cross-platform desktop <strong>launchpad for R/Shiny apps</strong>. Click a tile to select it; double-click or press Enter to
