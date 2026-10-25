@@ -1,4 +1,4 @@
-# Reproduce registered CTTIR v4.1 artwork and application icons.
+# Reproduce registered CTTIR v5 artwork and application icons.
 run_branding <- function() {
   args <- commandArgs(trailingOnly = FALSE)
   script <- sub("^--file=", "", args[grepl("^--file=", args)])

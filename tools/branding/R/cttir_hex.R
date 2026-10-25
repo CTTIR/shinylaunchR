@@ -1,4 +1,4 @@
-# CTTIR v4: artwork-only hexes with an optional name below the hex.
+# CTTIR v5: scientific artwork and the exact package name inside the hex.
 # All illustration, paths, lettering and exports are produced directly in R.
 .cttir_source <- base::tryCatch(base::sys.frame(1)$ofile, error=function(e)NULL)
 .cttir_rdir <- if(!base::is.null(.cttir_source)) base::dirname(base::normalizePath(.cttir_source)) else "R"
@@ -25,7 +25,7 @@ cttir_name <- function(name,y=.049,max_width=.90,size=34,colour="#212121",
   base::invisible(size)
 }
 
-# Both layouts share the identical hex drawing.
+# Both layouts share the same hex; the named layout reserves a lower text zone.
 cttir_draw <- function(name,family,mode="light",layout=c("hex","lockup"),small=FALSE,
                        font=base::Sys.getenv("CTTIR_BRAND_FONT",cttir_token("type","brand_font")),
                        newpage=TRUE, symbol_only=NULL) {
@@ -39,21 +39,20 @@ cttir_draw <- function(name,family,mode="light",layout=c("hex","lockup"),small=F
   ratio <- base::sqrt(3)/2
   hex_height <- width/ratio
   total_height <- grid::convertHeight(grid::unit(1,"npc"),"inches",valueOnly=TRUE)
-  hex_fraction <- hex_height/total_height
-  if(layout=="hex") hex_fraction <- 1
+  hex_fraction <- 1
   s <- cttir_style(family,mode)
-  # The extra name canvas is below the badge and stays transparent.
+  # All content stays within the hex; the exterior stays transparent.
   grid::pushViewport(grid::viewport(y=1-hex_fraction/2,height=hex_fraction))
   hex <- function(r,fill,col=NA,lwd=1) grid::grid.polygon(
     .5+c(0,r,r,0,-r,-r),.5+c(r,r/2,-r/2,-r,-r/2,r/2),
     gp=grid::gpar(fill=fill,col=col,lwd=lwd,linejoin="round"))
   # Group-tinted surface, solid group-colour border, no shelf or lettering.
   hex(.480,s$face,s$rim,lwd=5.5)
-  size <- base::as.numeric(cttir_token("layout","motif_width"))
-  grid::pushViewport(grid::viewport(x=.5,y=.5,width=size,height=size*ratio))
+  size <- if(layout=="lockup") .73 else base::as.numeric(cttir_token("layout","motif_width"))
+  grid::pushViewport(grid::viewport(x=.5,y=if(layout=="lockup") .585 else .5,width=size,height=size*ratio))
   cttir_motif(name,s,small=small)
   grid::popViewport(2)
-  if(layout=="lockup") cttir_name(name,y=(1-hex_fraction)*.45,
+  if(layout=="lockup") cttir_name(name,y=.215,max_width=.62,
     size=base::as.numeric(cttir_token("layout","name_size_points")),colour=s$ink,font=font)
   base::invisible(NULL)
 }
@@ -66,7 +65,6 @@ cttir_device <- function(open_device,draw) {
 cttir_dimensions <- function(layout="hex",width=1600L) {
   inches <- base::as.numeric(cttir_token("layout","hex_width_inches"))
   h <- inches/(base::sqrt(3)/2)
-  if(layout=="lockup") h <- h+base::as.numeric(cttir_token("layout","lockup_extra_height_inches"))
   list(width=inches,height=h,pixels=c(width,base::round(width*h/inches)))
 }
 cttir_render <- function(name,family,outdir,width=1600L,

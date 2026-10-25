@@ -15,10 +15,10 @@ dark,heading,#FFFFFF,themakR inst/pkgdown/extra.scss
 dark,link,#42A5F5,themakR inst/pkgdown/extra.scss
 dark,code_surface,#2B2B2B,themakR inst/pkgdown/extra.scss
 dark,border,#4F4F4F,themakR inst/pkgdown/extra.scss
-layout,hex_width_inches,6,CTTIR v4 master
-layout,lockup_extra_height_inches,0.78,CTTIR v4 name below hex
-layout,motif_width,0.88,CTTIR v4 artwork safe area
-layout,name_size_points,34,CTTIR v4 maximum fitted name size
+layout,hex_width_inches,6,CTTIR v5 master
+layout,lockup_extra_height_inches,0,CTTIR v5 name inside hex
+layout,motif_width,0.88,CTTIR v5 artwork safe area
+layout,name_size_points,32,CTTIR v5 maximum fitted name size
 topic,spectral,#0072B2,Okabe-Ito
 topic,spatial,#009E73,Okabe-Ito
 topic,omics,#CC79A7,Okabe-Ito

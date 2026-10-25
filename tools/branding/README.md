@@ -1,9 +1,14 @@
 # Package branding
 
-CTTIR Coder Edition v4.1, supplied 25 October 2026. Editable native R geometry
+CTTIR Coder Edition v5, supplied 25 October 2026. Editable native R geometry
 and `design_tokens.csv` define the artwork, topic colours and typography.
 Every identity has an artwork-only hex and a named composition with the exact
-package name below it, each in light, dark and grayscale modes.
+package name inside the hex, each in light, dark and grayscale modes.
+
+Both master compositions are 1600 by 1848 pixels. The published exports
+are regenerated consistently with the bundled SemiBold font. The supplied
+original vector files are retained separately; font and graphics differences
+mean regeneration is not claimed byte-identical to those originals.
 
 Render into a separate review directory from the repository root:
 
@@ -32,9 +37,9 @@ systems, install the bundled Inter and JetBrains Mono fonts first. Check a proof
 because font and graphics versions can affect the result. Font licences are
 in `fonts/OFL.txt` and `fonts/JetBrainsMono-OFL.txt`.
 
-The shared themakR template consumes the same v4.1 token and brand component
+The shared themakR template consumes the same v5 token and brand component
 styles. Standalone vignette styling needs explicit adoption; installing a
 package does not change its documentation theme or the user's font settings.
 
 Source archive SHA-256:
-`f3c5953d08e9de3ed453e3b840e1698e105a3489eda5331864e66de14aef9abd`
+`420401d00ab4c5eefdd74440d826b76282f3c1e5262c1f044fc0c6a052f6890e`
