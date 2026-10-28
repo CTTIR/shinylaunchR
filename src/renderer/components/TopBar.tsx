@@ -5,7 +5,8 @@
 
 import type { ThemePreference } from '@shared/types';
 import { ThemeToggle } from './ThemeToggle';
-import brandIcon from '../assets/logo-symbol.svg';
+import brandIcon from '../assets/logo.svg';
+import brandIconDark from '../assets/logo-dark.svg';
 
 export interface TopBarProps {
   theme: ThemePreference;
@@ -69,5 +70,8 @@ export function TopBar(props: TopBarProps) {
 }
 
 function HexLogo() {
-  return <img className="logo" src={brandIcon} alt="" aria-hidden="true" />;
+  return <span className="brand-logos">
+    <img className="logo brand-light" src={brandIcon} alt="shinylaunchR logo" />
+    <img className="logo brand-dark" src={brandIconDark} alt="shinylaunchR logo" />
+  </span>;
 }

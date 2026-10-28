@@ -11,6 +11,10 @@ run_branding <- function() {
     stop("Supply an output directory or --apply.")
   }
   apply <- identical(params, "--apply")
+  if (!requireNamespace("hexmakR", quietly = TRUE) ||
+      utils::packageVersion("hexmakR") < "0.2.0") {
+    stop("Install hexmakR >= 0.2.0 to use the approved v5 artwork library.")
+  }
 
   required <- c("packages.csv", "design_tokens.csv", file.path("R", c(
     "cttir_hex.R", "tokens.R", "accessibility.R", "palette.R",
@@ -123,8 +127,24 @@ run_branding <- function() {
   for (i in seq_len(nrow(registry))) {
     name <- registry$name[i]
     family <- registry$family[i]
-    directory <- file.path(output, name)
-    cttir_render(name, family, directory)
+    directory <- file.path(output, if (name == "CTTIR") "CTTIR-brand" else name)
+    # Approved masters preserve the supplied v5 name outlines exactly.
+    dir.create(directory, recursive = TRUE, showWarnings = FALSE)
+    for (layout in c("hex", "lockup")) {
+      for (mode in c("light", "dark", "mono")) {
+        for (format in c("svg", "png", "pdf")) {
+          master <- hexmakR::hex_asset(name, mode, layout, format)
+          if (!file.copy(master, file.path(directory, basename(master)),
+                         overwrite = TRUE)) stop("Could not copy v5 master.")
+        }
+      }
+    }
+    for (size in c(32L, 48L, 64L, 128L, 256L)) {
+      master <- hexmakR::hex_asset(name, layout = "icon", format = "png",
+                                  size = size)
+      if (!file.copy(master, file.path(directory, basename(master)),
+                     overwrite = TRUE)) stop("Could not copy v5 icon.")
+    }
     for (px in c(16L, 96L, 180L, 192L, 512L)) {
       cttir_device(function() grDevices::png(
         file.path(directory, paste0("icon-", px, ".png")),
@@ -153,7 +173,8 @@ run_branding <- function() {
   }
 
   if (apply) {
-    sources <- file.path(output, map$identity, map$rendered)
+    asset_dirs <- ifelse(map$identity == "CTTIR", "CTTIR-brand", map$identity)
+    sources <- file.path(output, asset_dirs, map$rendered)
     if (!all(file.exists(sources))) stop("A registered rendered file is missing.")
     for (i in seq_len(nrow(map))) {
       target <- destination_path(map$destination[i])

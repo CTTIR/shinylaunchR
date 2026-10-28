@@ -151,8 +151,9 @@ a:hover {
   letter-spacing: 0.2px;
 }
 .topbar .brand .logo {
-  width: 22px;
-  height: 22px;
+  width: 68px;
+  height: 78px;
+  object-fit: contain;
 }
 .topbar .spacer {
   flex: 1;
@@ -649,3 +650,7 @@ table.shortcuts td.key {
 fieldset:disabled { opacity: .7; }
 
 .tile .status-dot.queued, .tile .status-dot.launching, .tile .status-dot.stopping { background: var(--status-installing); border-color: var(--status-installing); }
+
+.brand-logos .brand-dark { display: none; }
+:root[data-theme="dark"] .brand-logos .brand-light { display: none; }
+:root[data-theme="dark"] .brand-logos .brand-dark { display: block; }
