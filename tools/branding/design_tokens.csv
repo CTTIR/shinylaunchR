@@ -28,3 +28,8 @@ topic,simulation,#E69F00,Okabe-Ito
 topic,evidence,#F0E442,Okabe-Ito
 topic,platform,#000000,Okabe-Ito
 topic,brand,#0072B2,CTTIR blue
+topic,core,#D4AF37,CTTIR gold: the institution logo and cttiR only
+topic,apps,#9E1B42,Wine: CTTIR software that is not an R package (square logos)
+topic,consensus,#91617B,Plum: consensus and ideation methods (brainwritR and delphyR)
+topic,embedding,#146554,Deep teal: dimension reduction and visualisation (songR and sorenR)
+core,accent_light,#9A7B26,CTTIR gold on light surfaces: #D4AF37 is 2:1 on white

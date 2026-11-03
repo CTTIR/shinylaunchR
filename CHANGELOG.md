@@ -12,6 +12,7 @@ Candidate qualification is tracked in [the qualification record](docs/qualificat
 - Add three-platform PR checks, sandboxed packaged checks, SHA-pinned actions and dependency updates.
 - Verify packaged Electron fuses, exclude sourcemaps and minimize macOS entitlements.
 - Replace archived native credential dependency with safeStorage integration; correct documentation and candidate metadata.
+- Use the square CTTIR logo for software that is not an R package, in the reserved apps colour (wine #9E1B42), for the README, site, app header and app icons.
 
 ### Added
 - **Three app families.** Apps are grouped into **Packages** (CRAN / GitHub

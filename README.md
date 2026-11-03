@@ -1,4 +1,4 @@
-# shinylaunchR <picture class="cttir-readme-logo"><source class="cttir-logo-dark-source" media="(prefers-color-scheme: dark)" srcset="assets/branding/logo-with-name-dark.png" /><img src="assets/branding/logo-with-name.png" alt="shinylaunchR hex logo" align="right" width="120" height="139" /></picture>
+# shinylaunchR <picture class="cttir-readme-logo"><source class="cttir-logo-dark-source" media="(prefers-color-scheme: dark)" srcset="assets/branding/logo-with-name-dark.png" /><img src="assets/branding/logo-with-name.png" alt="shinylaunchR logo" align="right" width="120" height="120" /></picture>
 
 A desktop launchpad for R and Shiny applications, with package apps, staged Shiny source apps, and hosted HTTPS URLs. Click a tile to select it; double-click or press Enter to launch it in its own native window.
 

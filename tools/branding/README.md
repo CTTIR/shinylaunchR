@@ -49,3 +49,14 @@ These files are copied without regenerating font outlines. Additional platform
 icon sizes continue to use the bundled R motif renderer. `assets.csv` records
 the intended variant for each destination; display logos use `lockup`, while
 favicons and explicitly compact symbols use artwork-only variants.
+
+## Square logo
+
+This repository is software that is not an R package, so its logo is the
+square v5 form in the reserved apps family (wine, `topic,apps`), not a hex.
+`R/square.R` draws it with the shared v5 motif, primitives and shading;
+`render.R` uses it for every identity in the `apps` family, writing the
+artwork-only square as `hex.*` and the named square as `lockup.*` so the
+asset map is unchanged. The name uses the installed JetBrains Mono
+ExtraBold, so rendering needs that font; the bundled font profile is not
+used.

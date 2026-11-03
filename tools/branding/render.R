@@ -18,7 +18,7 @@ run_branding <- function() {
 
   required <- c("packages.csv", "design_tokens.csv", file.path("R", c(
     "cttir_hex.R", "tokens.R", "accessibility.R", "palette.R",
-    "primitives.R", "motifs.R"
+    "primitives.R", "motifs.R", "square.R"
   )))
   if (!all(file.exists(file.path(branding, required)))) {
     stop("The branding source bundle is incomplete.")
@@ -124,14 +124,98 @@ run_branding <- function() {
     }
   }
 
+  # Software that is not an R package uses the square v5 logo in the apps
+  # family, drawn here; hex = artwork-only square, lockup = named square.
+  square_families <- "apps"
+  if (any(registry$family %in% square_families) && !cttir_square_installed()) {
+    stop("Install JetBrains Mono ExtraBold to render square logos.")
+  }
+  draw_square <- function(name, family, mode, layout, directory) {
+    stem <- paste0(layout, if (mode == "light") "" else paste0("-", mode))
+    draw <- function() cttir_square_draw(name, family, mode, layout)
+    cttir_device(function() grDevices::svg(file.path(directory, paste0(stem, ".svg")),
+      width = 6, height = 6, bg = "transparent"), draw)
+    cttir_device(function() grDevices::png(file.path(directory, paste0(stem, ".png")),
+      width = 1600L, height = 1600L, res = 1600 / 6, bg = "transparent",
+      type = "cairo", antialias = "gray"), draw)
+    cttir_device(function() grDevices::cairo_pdf(file.path(directory, paste0(stem, ".pdf")),
+      width = 6, height = 6, bg = "transparent"), draw)
+  }
+
+  # The approved master is recoloured instead of copied when the identity's
+  # family differs from the family hexmakR drew it in (the reserved core
+  # palette, or a package moved to another family) and for suite packages
+  # (kind "Suite"), which keep their family colours with the CTTIR gold rim.
+  # The bundled renderer draws the master's element sequence, so its colours
+  # replace the master's one by one and the supplied name outlines stay
+  # intact.
+  library_registry <- utils::read.csv(
+    system.file("cttir", "packages.csv", package = "hexmakR", mustWork = TRUE),
+    stringsAsFactors = FALSE)
+  master_family <- stats::setNames(library_registry$family, library_registry$name)
+  colour_attr <- "(fill|stroke)=\"rgb\\([^)]*\\)\""
+  colour_attrs <- function(x) regmatches(x, gregexpr(colour_attr, x))[[1]]
+  draw_svg <- function(name, family, mode, layout, suite) {
+    old <- options(cttir.suite = suite)
+    on.exit(options(old), add = TRUE)
+    file <- tempfile(fileext = ".svg")
+    on.exit(unlink(file), add = TRUE)
+    d <- cttir_dimensions(layout)
+    cttir_device(function() grDevices::svg(file, width = d$width, height = d$height,
+                                           bg = "transparent"),
+                 function() cttir_draw(name, family, mode, layout))
+    readChar(file, file.size(file), useBytes = TRUE)
+  }
+  recolour_master <- function(name, family, mode, layout, directory, suite) {
+    base <- master_family[[name]]
+    path <- hexmakR::hex_asset(name, mode, layout, "svg")
+    master <- readChar(path, file.size(path), useBytes = TRUE)
+    if (!identical(colour_attrs(master),
+                   colour_attrs(draw_svg(name, base, mode, layout, FALSE)))) {
+      stop("The ", name, " ", mode, " ", layout,
+           " master no longer matches the bundled renderer.")
+    }
+    recoloured <- colour_attrs(draw_svg(name, family, mode, layout, suite))
+    if (length(recoloured) != length(colour_attrs(master))) {
+      stop("The recolouring changed the ", name, " drawing structure.")
+    }
+    regmatches(master, gregexpr(colour_attr, master)) <- list(recoloured)
+    stem <- paste0(layout, if (mode == "light") "" else paste0("-", mode))
+    writeChar(master, file.path(directory, paste0(stem, ".svg")), eos = NULL,
+              useBytes = TRUE)
+    # PNG and PDF follow hexmakR: drawn from the SVG at the master pixel size.
+    stretched <- sub("<svg ", "<svg preserveAspectRatio=\"none\" ", master, fixed = TRUE)
+    rsvg::rsvg_png(charToRaw(stretched), file.path(directory, paste0(stem, ".png")),
+                   width = 1600L, height = 1848L)
+    rsvg::rsvg_pdf(charToRaw(master), file.path(directory, paste0(stem, ".pdf")))
+  }
+
   for (i in seq_len(nrow(registry))) {
     name <- registry$name[i]
     family <- registry$family[i]
+    suite <- "kind" %in% names(registry) && identical(registry$kind[i], "Suite")
+    square <- family %in% square_families
+    if (!square && !name %in% names(master_family)) {
+      stop(name, " has no approved master in hexmakR.")
+    }
+    recolour <- !square && (suite || !identical(master_family[[name]], family))
+    if (recolour && !requireNamespace("rsvg", quietly = TRUE)) {
+      stop("Install rsvg to recolour the ", name, " master.")
+    }
     directory <- file.path(output, if (name == "CTTIR") "CTTIR-brand" else name)
     # Approved masters preserve the supplied v5 name outlines exactly.
     dir.create(directory, recursive = TRUE, showWarnings = FALSE)
     for (layout in c("hex", "lockup")) {
       for (mode in c("light", "dark", "mono")) {
+        # Greyscale is shared by every identity and stays as supplied.
+        if (square) {
+          draw_square(name, family, mode, layout, directory)
+          next
+        }
+        if (recolour && mode != "mono") {
+          recolour_master(name, family, mode, layout, directory, suite)
+          next
+        }
         for (format in c("svg", "png", "pdf")) {
           master <- hexmakR::hex_asset(name, mode, layout, format)
           if (!file.copy(master, file.path(directory, basename(master)),
@@ -139,22 +223,31 @@ run_branding <- function() {
         }
       }
     }
-    for (size in c(32L, 48L, 64L, 128L, 256L)) {
+    # Icons carry no name, so a recoloured identity draws every size.
+    old_suite <- options(cttir.suite = suite)
+    drawn <- c(16L, 96L, 180L, 192L, 512L)
+    if (recolour || square) {
+      drawn <- sort(c(drawn, 32L, 48L, 64L, 128L, 256L))
+    } else for (size in c(32L, 48L, 64L, 128L, 256L)) {
       master <- hexmakR::hex_asset(name, layout = "icon", format = "png",
                                   size = size)
       if (!file.copy(master, file.path(directory, basename(master)),
                      overwrite = TRUE)) stop("Could not copy v5 icon.")
     }
-    for (px in c(16L, 96L, 180L, 192L, 512L)) {
+    for (px in drawn) {
       cttir_device(function() grDevices::png(
         file.path(directory, paste0("icon-", px, ".png")),
         width = px, height = px, res = px / 6, bg = "transparent",
         type = "cairo", antialias = "gray"
       ), function() {
         grid::grid.newpage()
-        grid::pushViewport(grid::viewport(width = sqrt(3) / 2, height = 1))
-        cttir_draw(name, family, mode = "dark", layout = "hex", small = TRUE, newpage = FALSE)
-        grid::popViewport()
+        if (square) {
+          cttir_square_draw(name, family, "dark", "hex", small = px <= 64, newpage = FALSE)
+        } else {
+          grid::pushViewport(grid::viewport(width = sqrt(3) / 2, height = 1))
+          cttir_draw(name, family, mode = "dark", layout = "hex", small = TRUE, newpage = FALSE)
+          grid::popViewport()
+        }
       })
     }
     # The complete mark fits within the central maskable safe circle.
@@ -164,10 +257,16 @@ run_branding <- function() {
       type = "cairo", antialias = "gray"
     ), function() {
       grid::grid.newpage()
-      grid::pushViewport(grid::viewport(width = 0.72 * sqrt(3) / 2, height = 0.72))
-      cttir_draw(name, family, mode = "dark", layout = "hex", small = TRUE, newpage = FALSE)
+      grid::pushViewport(grid::viewport(width = 0.72 * if (square) 1 else sqrt(3) / 2,
+                                        height = 0.72))
+      if (square) {
+        cttir_square_draw(name, family, "dark", "hex", small = TRUE, newpage = FALSE)
+      } else {
+        cttir_draw(name, family, mode = "dark", layout = "hex", small = TRUE, newpage = FALSE)
+      }
       grid::popViewport()
     })
+    options(old_suite)
     write_ico(directory)
     write_icns(directory)
   }
@@ -193,6 +292,11 @@ script_files <- sub("^--file=", "", commandArgs(trailingOnly = FALSE)[
   grepl("^--file=", commandArgs(trailingOnly = FALSE))
 ])
 if (length(script_files) != 1L) stop("Run this file with Rscript.")
+# Square logos name the software in the installed JetBrains Mono ExtraBold,
+# which the bundled font profile would hide; hex masters are copied or
+# recoloured, so their supplied name outlines do not depend on it.
+Sys.setenv(CTTIR_FONTCONFIG = "off")
 source(file.path(dirname(normalizePath(script_files, mustWork = TRUE)), "R", "cttir_hex.R"))
+source(file.path(dirname(normalizePath(script_files, mustWork = TRUE)), "R", "square.R"))
 rm(script_files)
 run_branding()
