@@ -60,10 +60,16 @@ function live(pid: number): boolean {
 
 describe('owned process lifecycle', () => {
   it('settles asynchronous spawn errors and releases ownership', async () => {
-    const owner = manager();
-    const child = owner.start(path.join(root, 'missing-executable'), [], {
+    const missing = path.join(root, 'missing-executable');
+    // Exercise the native asynchronous spawn error independently of the
+    // Windows supervisor's PowerShell compilation and startup deadline.
+    const owner = new ProcessManager(root, () =>
+      spawn(missing, [], { stdio: 'pipe' }),
+    );
+    managers.push(owner);
+    const child = owner.start(missing, [], {
       owner: 'fixture',
-      timeoutMs: process.platform === 'win32' ? 15000 : 1000,
+      timeoutMs: 1000,
     });
     const result = await child.done;
     expect(result.error).toMatch(/ENOENT|not found/i);
