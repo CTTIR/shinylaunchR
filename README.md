@@ -85,8 +85,9 @@ copyediting, prose refinement, Markdown/LaTeX formatting, boilerplate scaffoldin
 [Chat AI](https://kisski.gwdg.de/leistungen/2-02-llm-service/), the KISSKI
 (GWDG) service, and self-hosted **Mistral Small (24B, Apache-2.0)** served through
 a local **vLLM architecture** on an Ubuntu Linux workstation with Intel
-processors and NVIDIA GPUs. The self-hosted model ran locally, with no data sent
-to third parties.
+processors and NVIDIA GPUs. Self-hosted use also includes models that were
+further trained (fine-tuned) or weight-edited in-house for specific tasks.
+All self-hosted models ran locally, with no data sent to third parties.
 
 All scientific claims, methodological choices, analyses, interpretations and
 conclusions remain the authors' own. Where applicable, LLM-generated material
