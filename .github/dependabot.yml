@@ -7,6 +7,11 @@ updates:
     groups:
       compatible-toolchain:
         patterns: ['*']
+    ignore:
+      # typescript-eslint 8.x declares typescript >=4.8.4 <6.1.0 as its peer
+      # range, so TypeScript 7 breaks npm ci. Remove once it supports TS 7.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule:
