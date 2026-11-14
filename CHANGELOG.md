@@ -11,6 +11,7 @@ Candidate qualification is tracked in [the qualification record](docs/qualificat
 - Refresh Electron, React, TypeScript, Vite-compatible build tooling, Vitest and ESLint flat configuration; use Node 24.
 - Add three-platform PR checks, sandboxed packaged checks, SHA-pinned actions and dependency updates.
 - Verify packaged Electron fuses, exclude sourcemaps and minimize macOS entitlements.
+- Restore the ad-hoc Apple Silicon signature after changing fuses so unsigned local macOS builds can launch; distribution signing and notarization remain separate.
 - Replace archived native credential dependency with safeStorage integration; correct documentation and candidate metadata.
 - Use the square CTTIR logo for software that is not an R package, in the reserved apps colour (wine #9E1B42), for the README, site, app header and app icons.
 

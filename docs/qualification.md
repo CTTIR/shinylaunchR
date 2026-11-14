@@ -12,6 +12,22 @@ Packaged checks exercise actual notification denial, blocked navigation/popups, 
 
 An isolated Linux keyring test migrated a synthetic legacy token, verified encrypted disk storage, restored it in a separate process, and removed it. No personal token was used. A separate private display running Orca verified the AT-SPI application tree, accessible Add app action, dialog role and focused control. This is integration evidence, not a human screen-reader usability certification.
 
+## macOS ARM64 packaging check, 14 November 2026
+
+A fresh Node24/Electron45.2.3 build initially exited before startup with macOS
+`SIGKILL (Code Signature Invalid)` after the packaging hook changed Electron's
+fuses. The hook now resets the ad-hoc signature for arm64/universal macOS builds
+using the supported Electron fuses option. The fuse policy is unchanged and a
+later distribution-signing step can still replace this local signature.
+
+The repaired ARM64 application passed strict recursive signature verification
+and the existing packaged smoke: sandbox/preload isolation, eight dark/light
+accessibility views, native modal keyboard interactions, denied notifications,
+blocked navigation/popups, and foreign-renderer IPC rejection. Credential checks
+were explicitly skipped; the smoke used a disposable profile. This was a local
+ad-hoc build, not a signed/notarized installer, clean-install test, credential-store
+qualification, or human screen-reader assessment.
+
 ## Requirements before a final release
 
 - Exercise signed Windows and signed/notarized macOS artifacts, including the reduced macOS entitlements. Signing credentials are not configured in the repository.
